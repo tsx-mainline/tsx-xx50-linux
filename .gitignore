@@ -1,0 +1,7 @@
+out/
+*.img
+*.img.gz
+*.img.zst
+*.sha256
+*.bin
+__pycache__/
