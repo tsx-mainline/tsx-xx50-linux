@@ -7,12 +7,19 @@
 # docker (image tsx-xx50-build from ci/Dockerfile, built on first use).
 # Output in <out-dir>:
 #   zImage-dtb     zImage with the board DTB appended
-#   uImage         legacy U-Boot image of zImage-dtb, load and entry 0x70008000
+#   uImage         legacy U-Boot image of zImage-dtb, load and entry 0x71000000
 #   <board>.dtb    the board DTB
 #   modules/       the module tree (lib/modules/<release>)
 #   kernel.release, kernel.config, kernel.commit
 # The stock U-Boot reads 0x2000 sectors (4 MiB) from the kernel slot. The
 # script stops with an error if uImage is larger.
+#
+# Memory at boot: U-Boot reads the uImage to 0x70800000 and the ramdisk to
+# 0x70D00000, and leaves the ramdisk there. It copies the zImage to the load
+# address 0x71000000. The zImage unpacks the kernel to 0x70008000. The
+# kernel (up to _end, with bss) must end below the ramdisk, and the zImage
+# must start above the kernel, so the zImage does not move itself over the
+# ramdisk. The script stops with an error if the kernel reaches 0x70D00000.
 set -eu
 [ $# -eq 2 ] || { awk 'NR > 1 && !/^#/ {exit} NR > 1 {print}' "$0"; exit 2; }
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -24,7 +31,9 @@ BOARD=${BOARD:-imx53-crestron-tss752}
 IMAGE=${IMAGE:-tsx-xx50-build}
 J=${J:-$(nproc)}
 SLOT_MAX=$((0x2000 * 512))
-LOADADDR=0x70008000
+LOADADDR=0x71000000
+RAMDISK=$((0x70D00000))
+PHYS=$((0x70000000))
 
 docker image inspect "$IMAGE" >/dev/null 2>&1 || {
 	echo "== build the docker image $IMAGE (one time)"
@@ -47,6 +56,17 @@ echo "== build zImage, $BOARD.dtb and the modules (-j$J)"
 run "$MK zImage nxp/imx/$BOARD.dtb modules"
 rm -rf "$OUT/modules"
 run "$MK modules_install INSTALL_MOD_PATH=$OUT/modules INSTALL_MOD_STRIP=1 >/dev/null"
+
+printf "== check the kernel end against the ramdisk at 0x%x\n" "$RAMDISK"
+END=$(awk '$3 == "_end" {print $1}' "$B/System.map")
+TEXT=$(awk '$3 == "_text" {print $1}' "$B/System.map")
+[ -n "$END" ] && [ -n "$TEXT" ] || { echo "ERROR: no _end or _text in System.map" >&2; exit 1; }
+KEND=$((0x$END - (0x$TEXT & ~0xfffff) + PHYS))
+printf 'kernel end 0x%x, ramdisk 0x%x, %d KiB free\n' "$KEND" "$RAMDISK" $(((RAMDISK - KEND) / 1024))
+if [ "$KEND" -ge "$RAMDISK" ]; then
+	echo "ERROR: the kernel reaches the ramdisk of the stock U-Boot" >&2
+	exit 1
+fi
 
 echo "== pack the uImage"
 cp "$B/arch/arm/boot/dts/nxp/imx/$BOARD.dtb" "$OUT/$BOARD.dtb"

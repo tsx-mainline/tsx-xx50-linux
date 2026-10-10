@@ -12,6 +12,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: read COMMON_REF
+        id: common
+        run: echo "ref=$(grep -v -e '^#' -e '^$' COMMON_REF)" >> "$GITHUB_OUTPUT"
+      - name: check out tsx-linux-common ${{ steps.common.outputs.ref }} (the splash of the ramdisk)
+        uses: actions/checkout@v4
+        with:
+          repository: tsx-mainline/tsx-linux-common
+          ref: ${{ steps.common.outputs.ref }}
+          path: tsx-linux-common
+
       - name: cache the kernel tree
         uses: actions/cache@v4
         with:
@@ -22,6 +32,8 @@ jobs:
         run: kernel/fetch-kernel.sh ../linux
 
       - name: build the kernel (kernel/build-kernel.sh) and the ramdisk (image/mkinitrd.sh)
+        env:
+          TSX_COMMON: ${{ github.workspace }}/tsx-linux-common
         run: |
           kernel/build-kernel.sh ../linux out/kernel
           image/mkinitrd.sh out/kernel out/kernel

@@ -1,7 +1,8 @@
 #!/bin/sh
 # Build the xx50 card image for the Crestron TSS-752.
 #
-#   [AUTHORIZED_KEYS=<pubkey file>] [TSX_APK_LOCAL=<apk tree>] ./build.sh <kernel-tree> <stock-card-dump> [out-dir]
+#   TSX_COMMON=<tsx-linux-common checkout> [AUTHORIZED_KEYS=<pubkey file>] [TSX_APK_LOCAL=<apk tree>] \
+#     ./build.sh <kernel-tree> <stock-card-dump> [out-dir]
 #
 # <kernel-tree>      a checkout of the tsx-xx50-lts kernel branch
 # <stock-card-dump>  an image of the stock SD card of the panel (the first
@@ -10,7 +11,8 @@
 # Needs docker. A host that is not armv7 or arm64 needs qemu-user binfmt
 # support for the armv7 rootfs step. Steps: kernel, rootfs, ramdisk, card
 # image, offline checks. AUTHORIZED_KEYS and TSX_APK_LOCAL: see
-# rootfs/mkrootfs.sh. Output:
+# rootfs/mkrootfs.sh. TSX_COMMON: see image/mkinitrd.sh (the boot splash).
+# Output:
 # <out-dir>/tsx-xx50-tss752.img.gz and its .sha256.
 set -eu
 [ $# -ge 2 ] || { awk 'NR > 1 && !/^#/ {exit} NR > 1 {print}' "$0"; exit 2; }

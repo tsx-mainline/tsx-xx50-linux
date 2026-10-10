@@ -9,7 +9,10 @@
 #
 #   tests/qemu-image.sh <card.img> <qemu-kernel-dir> <ssh-private-key> <work-dir>
 #
-# Env: PORT (local ssh port, default 22522), BOOT_LIMIT (seconds, default 600).
+# Env: PORT (local ssh port, default 22522), BOOT_LIMIT (seconds, default 600),
+#      INITRD (initrd.cpio.gz of image/mkinitrd.sh: boot through the ramdisk
+#      as on the panel, root=PARTUUID, and check its log lines; the QEMU
+#      display gets the splash).
 set -eu
 [ $# -eq 4 ] || { awk 'NR > 1 && !/^#/ {exit} NR > 1 {print}' "$0"; exit 2; }
 IMG=$1 QK=$(cd "$2" && pwd) KEY=$3
@@ -25,11 +28,19 @@ echo "== copy the card image (QEMU needs a power-of-two SD size)"
 cp "$IMG" "$W/card.img"
 truncate -s 4G "$W/card.img"
 
+if [ -n "${INITRD:-}" ]; then
+	set -- -initrd "$INITRD"
+	APPEND="console=ttyAMA0 fbcon=map:1 root=PARTUUID=7458a050-02 rootfstype=ext4 rootwait=60 rw panic=10 init=/sbin/init"
+else
+	set --
+	APPEND="console=ttyAMA0 root=/dev/mmcblk0p2 rootwait rw panic=10"
+fi
 start_qemu() {
+	n=$1; shift
 	qemu-system-arm -M vexpress-a9 -m 1024 -display none -monitor none \
-		-serial "file:$W/serial-$1.log" -pidfile "$W/qemu.pid" -daemonize \
-		-kernel "$QK/zImage" -dtb "$QK/vexpress-v2p-ca9.dtb" \
-		-append "console=ttyAMA0 root=/dev/mmcblk0p2 rootwait rw panic=10" \
+		-serial "file:$W/serial-$n.log" -pidfile "$W/qemu.pid" -daemonize \
+		-kernel "$QK/zImage" -dtb "$QK/vexpress-v2p-ca9.dtb" "$@" \
+		-append "$APPEND" \
 		-drive if=sd,format=raw,file="$W/card.img" \
 		-net nic -net "user,hostfwd=tcp:127.0.0.1:$PORT-:22"
 }
@@ -50,7 +61,7 @@ wait_ssh() {
 trap stop_qemu EXIT
 
 echo "== boot 1"
-start_qemu 1
+start_qemu 1 "$@"
 if wait_ssh 1; then pass "ssh login with the key (boot 1)"; else fail "no ssh after $LIMIT s (boot 1)"; tail -n 60 "$W/serial-1.log"; exit 1; fi
 echo "   wait 30 s for the default runlevel"
 sleep 30
@@ -59,6 +70,12 @@ sed 's/^/   | /' "$W/rc-status-1.txt"
 for s in tsx-setup tsx-hostname tsx-data tsx-config tsx-cpufreq tsx-touch tsx-setup-helper tsx-setupd networking sshd chronyd; do
 	grep -E "^ *$s .*started" "$W/rc-status-1.txt" >/dev/null && pass "service $s started" || fail "service $s not started"
 done
+if [ -n "${INITRD:-}" ]; then
+	grep -aq 'tsx-init: splash at' "$W/serial-1.log" && pass "the ramdisk drew the splash" || fail "no splash line of the ramdisk"
+	grep -aq 'tsx-init: switch to' "$W/serial-1.log" && pass "the ramdisk switched to the root partition" || fail "the ramdisk did not switch to the root partition"
+	$SSH 'mountpoint -q /dev && mountpoint -q /proc && mountpoint -q /sys && grep -q " / ext4 " /proc/mounts' &&
+		pass "/dev, /proc and /sys moved to the root partition" || fail "mounts after the switch"
+fi
 $SSH 'mountpoint -q /data' && pass "/data is mounted (tsxdata)" || fail "/data is not mounted"
 $SSH 'mountpoint -q /var/lib/tsx && test -e /data/var/lib/tsx/.tsx-moved' && pass "tsx-data moved /var/lib/tsx to /data" || fail "/var/lib/tsx is not on /data"
 $SSH 'mountpoint -q /mnt/tsxlog' && pass "TSXLOG is mounted" || fail "TSXLOG is not mounted"
@@ -88,7 +105,7 @@ new_boot() {
 	return 1
 }
 if new_boot; then pass "ssh login after a reboot"; else
-	stop_qemu; start_qemu 2
+	stop_qemu; start_qemu 2 "$@"
 	wait_ssh 2 && pass "ssh login after a restart of QEMU" || fail "no ssh after the reboot"
 fi
 sleep 30

@@ -17,6 +17,7 @@ kernel), LIKELY, GUESS or TESTED.
 |---|---|---|
 | SoC | NXP i.MX53, one Cortex-A8 core, 1 GiB RAM in two banks | Tested |
 | Boot | Stock U-Boot 2009.08 on the SD card (eSDHC1) | Tested |
+| Boot splash | Ramdisk `/init` and `tsx-splash` on `fb0`, `fbcon=map:1` | Tested |
 | Ethernet | FEC in RMII mode, generic PHY at MDIO address 0, PHY reset GPIO7_6 | Tested, 100 Mbit |
 | Display | 800x480 RGB666 panel on IPU DI0, `imx-drm`, connector `card0-DPI-1` | Tested |
 | Backlight | PWM2, 20 kHz, inverted, `pwm-backlight` (0 to 255) | Tested |
@@ -34,6 +35,38 @@ kernel), LIKELY, GUESS or TESTED.
 
 The panel has no USB port, no Wi-Fi, no Bluetooth, no camera, no presence
 sensor and no ambient light sensor.
+
+## Boot splash
+
+The stock U-Boot shows the Crestron logo. Then the kernel starts, and the
+display driver takes the screen. The ramdisk (`image/mkinitrd.sh`) draws the
+splash of tsx-linux-common: Tux, the word mark and the status line
+"starting". The kernel keeps its text console off the LCD (`fbcon=map:1`), so
+nothing draws over the splash. The panel app sets the display mode with its
+first frame, so no black frame shows between the splash and the cards.
+
+| Step | Time after the kernel start |
+|---|---|
+| The display driver registers `fb0` | 1.3 s |
+| The kernel starts `/init` of the ramdisk | 1.45 s |
+| The splash is on `fb0` | 1.6 s |
+| `/init` starts `/sbin/init` of the root partition | 1.7 s |
+| The panel app starts | 18.5 to 18.9 s |
+| The first frame of the panel app | 0.5 s after the start of the app |
+
+The ramdisk is 85 KB of the 384 KiB slot: `/init` (static, 50 KB),
+`tsx-splash` (static, 50 KB), the 800x480 frame and one font. `/init` finds
+`root=PARTUUID=7458a050-02` by the disk id in the MBR, mounts it as the
+kernel does, and starts `/sbin/init` there.
+
+Text console in place of the splash: set `BOOT_VERBOSE=1` in `panel.conf`
+(`tsx-config set BOOT_VERBOSE 1`, then `tsx-config apply`). `/init` then
+gives the screen to the text console from the root mount on. The console
+shows the kernel log and the OpenRC messages until the panel app starts.
+
+If the root partition does not show up in 60 s, or `/sbin/init` is missing,
+`/init` shows the text console with the reason and stops. The kernel then
+restarts the panel after 10 s, as it does without a ramdisk.
 
 ## Touch
 
@@ -232,7 +265,6 @@ for the tools of tsx-linux-common:
 | Message | Cause |
 |---|---|
 | `ramoops: uncorrectable error in header` | The ramoops area is empty on the first start after power-on. |
-| `Initramfs unpacking failed`, `rdinit=/init failed` | The ramdisk is a placeholder for the stock U-Boot. It holds no `/init`. |
 | `coda ... vpu_fw_imx53.bin failed` | The image has no VPU firmware. The image does not use the VPU. |
 | `failed to find fsl,imx53-iim regmap` | The IIM node in `imx53.dtsi` is not a syscon. This message shows on all i.MX53 boards. |
 | `panel-simple panel: Specify missing bus_format` | The panel node sets no bus format. The display works. |

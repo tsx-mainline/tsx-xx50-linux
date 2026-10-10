@@ -86,18 +86,21 @@ To put a new image on a card that already runs, and keep its data, use
    the data partition and makes its ssh host keys.
 
 The stock U-Boot starts after about 3 seconds. The kernel starts after about
-5 more seconds. The panel app shows its first picture about 20 seconds after
-the kernel start.
+5 more seconds. The boot splash shows about 2 seconds after the kernel
+start. The panel app shows its first picture about 20 seconds after the
+kernel start.
 
 ## What to look for on the screen
 
-- Text from the kernel, then the panel app: a big clock. Until Home
-  Assistant sends the time, the clock shows `--:--`.
+- The Crestron logo of U-Boot, then the boot splash (Tux, "TSX-LINUX" and
+  "starting"), then the panel app: a big clock. Until Home Assistant sends
+  the time, the clock shows `--:--`.
 - A bar at the top of the screen with the setup address and a code. A new
   panel shows it until the first save of the setup page.
-- A dark screen with the backlight on: the kernel probably runs, but the
-  panel app did not start. Log in with ssh and read
-  `/var/log/tsx-panel-app.log`.
+- The boot splash stays: the kernel runs, but the panel app did not start.
+  Log in with ssh and read `/var/log/tsx-panel-app.log`.
+- Text on the screen and then a restart: the ramdisk did not find the root
+  partition. The text gives the reason.
 - The panel restarts again and again: a crash or the watchdog.
 
 ## First setup

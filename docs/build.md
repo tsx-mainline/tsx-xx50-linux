@@ -17,8 +17,11 @@ also lists the tests and the output of CI and of a release.
 
 1. Get the kernel tree of `kernel/KERNEL_REV`:
    `kernel/fetch-kernel.sh ../linux`
-2. Build the image:
-   `./build.sh ../linux stock-card.img out`
+2. Get tsx-linux-common at the tag of `COMMON_REF` (the ramdisk uses its
+   `splash/`):
+   `git clone -b <tag> https://github.com/tsx-mainline/tsx-linux-common ../tsx-linux-common`
+3. Build the image:
+   `TSX_COMMON=../tsx-linux-common ./build.sh ../linux stock-card.img out`
 
 `build.sh` runs these steps:
 
@@ -26,7 +29,7 @@ also lists the tests and the output of CI and of a release.
 |---|---|---|
 | Kernel | `kernel/build-kernel.sh` | `kernel/uImage`, the DTB, `kernel/modules/`, `kernel/kernel.release` |
 | Root file system | `rootfs/mkrootfs.sh` | `work/rootfs.ext4`, `work/data.ext4`, `work/rootfs.manifest` |
-| Ramdisk placeholder | `image/mkinitrd.sh` | `work/uInitrd` |
+| Ramdisk (boot splash) | `image/mkinitrd.sh` | `work/uInitrd` |
 | Card image | `image/mkcard.sh` | `tsx-xx50-tss752.img`, `.img.gz` and the `.sha256` files |
 | Offline checks | `image/check-card.py` | none (it reports each check) |
 
@@ -34,13 +37,15 @@ Environment of `build.sh` and `rootfs/mkrootfs.sh`:
 
 | Variable | Default | Function |
 |---|---|---|
+| `TSX_COMMON` | none (required) | A tsx-linux-common checkout. `image/mkinitrd.sh` compiles `tsx-splash` and renders the 800x480 splash from its `splash/` folder. |
 | `AUTHORIZED_KEYS` | none | A file with the ssh public keys for root. Without it, set the key on the setup page. |
 | `TSX_APK_LOCAL` | none | A local tsx-aports tree (`v3.24/common/armv7`, `v3.24/xx50/armv7`) for packages that are not published yet. |
 | `TSX_APK_URL` | `https://tsx-aports.unexceptional.net` | The package repository of the image and of the panel. |
 | `ROOTFS_MB`, `DATA_MB` | 1536, 512 | The sizes of p2 and p3 in MiB. |
 
 The kernel must fit the 4 MiB kernel slot. `kernel/build-kernel.sh` stops
-with an error when the uImage is larger.
+with an error when the uImage is larger, or when the kernel in memory
+reaches the ramdisk at 0x70D00000 (see README.md, "Boot path").
 
 ## Root file system
 
@@ -93,7 +98,7 @@ MAC and the API key at start ([userland.md](userland.md), "Panel app").
 | `tests/test-board.sh` | The board values from a made-up U-Boot env, `tsx-hw`, the panel app environment, the layouts | python3, a tsx-linux-common checkout (`TSX_COMMON`) |
 | `tests/test-kernel-slots.sh` | `tsx-kernel-slots` on a card image file | python3 |
 | `tests/test-update-card.sh` | `image/update-card.sh` on small card image files | e2fsprogs for the grow checks |
-| `tests/qemu-image.sh` | A full card image in QEMU (vexpress-a9): OpenRC, the data partition, the setup page, the ssh login | a card image, a kernel from `tests/build-qemu-kernel.sh`, qemu-system-arm |
+| `tests/qemu-image.sh` | A full card image in QEMU (vexpress-a9): OpenRC, the data partition, the setup page, the ssh login. With `INITRD` (the `initrd.cpio.gz` of `image/mkinitrd.sh`), also the boot through the ramdisk | a card image, a kernel from `tests/build-qemu-kernel.sh`, qemu-system-arm |
 
 Run the shell tests with busybox sh, the shell of the panel:
 `busybox sh tests/test-board.sh`. The panel app needs the panel. QEMU has no
@@ -115,7 +120,7 @@ The workflows run on the arm64 runner `ubuntu-24.04-arm`.
 | Workflow | Trigger | Jobs |
 |---|---|---|
 | `tests.yml` | push, pull request | `ci/lint.sh`, the host tests with busybox sh (and `test-update-card.sh` with dash) |
-| `kernel.yml` | push, pull request | The kernel of `kernel/KERNEL_REV` and the ramdisk placeholder |
+| `kernel.yml` | push, pull request | The kernel of `kernel/KERNEL_REV` and the ramdisk |
 | `panel-app.yml` | push, pull request | The panel app program and its source archive |
 | `release.yml` | tag `v*`, manual | The release assets (below) |
 

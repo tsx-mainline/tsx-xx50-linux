@@ -9,8 +9,9 @@ Checks:
     stock dump, and the env CRC is valid
   - the MBR: disk id, three partitions, no overlap with the raw area (16 MiB)
   - the uImage headers in both kernel slots: magic, CRCs, type, load and
-    entry 0x70008000, size within the 4 MiB slot that U-Boot reads
-  - the uInitrd headers in both ramdisk slots: size within 384 KiB, gzip cpio
+    entry 0x71000000, size within the 4 MiB slot that U-Boot reads
+  - the uInitrd headers in both ramdisk slots: size within 384 KiB, a gzip
+    newc cpio with /init, /dev/console, tsx-splash and an 800x480 frame
   - the DTB appended to the zImage: FDT magic, structure, model, compatible
     (with dtc, if dtc is in PATH, also a full decompile)
   - the TSXLOG FAT label and the ext4 superblocks of the root and data
@@ -31,7 +32,7 @@ KERNEL_SLOTS = {"normal": 0x800000, "golden": 0xC00000}
 INITRD_SLOTS = {"normal": 0x100000, "golden": 0x200000}
 KERNEL_READ = 0x2000 * 512
 INITRD_READ = 0x300 * 512
-LOADADDR = 0x70008000
+LOADADDR = 0x71000000
 DISK_ID = 0x7458A050
 
 failures = []
@@ -47,6 +48,21 @@ def check(cond, msg):
 def read(f, off, n):
     f.seek(off)
     return f.read(n)
+
+
+def cpio_names(data):
+    """The entry names of a newc cpio archive."""
+    names, o = set(), 0
+    while True:
+        if data[o:o + 6] != b"070701":
+            raise ValueError(f"no newc header at {o}")
+        fsize, nsize = int(data[o + 54:o + 62], 16), int(data[o + 94:o + 102], 16)
+        name = data[o + 110:o + 110 + nsize - 1].decode(errors="replace")
+        if name == "TRAILER!!!":
+            return names
+        names.add(name[2:] if name.startswith("./") else name)
+        o = (o + 110 + nsize + 3) & ~3
+        o = (o + fsize + 3) & ~3
 
 
 def uimage(buf, slot, want_type, read_max):
@@ -180,11 +196,13 @@ def main():
         rds.append(data)
     check(rds[0] == rds[1], "normal and golden ramdisk slots are identical")
     try:
-        cpio = gzip.decompress(rds[0])
-        check(cpio[:6] == b"070701" and b"tsx-initrd" in cpio and b"init\0" not in cpio,
-              "the ramdisk is a newc cpio with /tsx-initrd and no /init")
-    except OSError:
-        check(False, "the ramdisk is gzip data")
+        names = cpio_names(gzip.decompress(rds[0]))
+        print(f"      {len(names)} entries")
+        for want in ("init", "dev/console", "usr/local/bin/tsx-splash",
+                     "usr/share/tsx/splash/splash-800x480.ppm", "usr/share/tsx/splash/font-16.psf"):
+            check(want in names, f"the ramdisk has /{want}")
+    except (OSError, ValueError) as e:
+        check(False, f"the ramdisk is a gzip newc cpio ({e})")
 
     print("== file systems")
     p1, p2 = parts[0][2] * 512, parts[1][2] * 512

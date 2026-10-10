@@ -14,7 +14,8 @@ firmware, put the stock SD card back in the panel.
 
 | Part | Status |
 |---|---|
-| Boot | The stock U-Boot starts the kernel from the raw kernel slot of the card. |
+| Boot | The stock U-Boot starts the kernel and the ramdisk from the raw slots of the card. |
+| Boot splash | The TSX splash shows 1.6 s after the kernel start and stays until the panel app shows its first frame. |
 | Ethernet | 100 Mbit, the MAC address of the panel, DHCP, ssh, NTP. |
 | Display | 800x480, DRM/KMS (`imx-drm`), PWM backlight. |
 | Touch | FT5x06, five fingers. |
@@ -48,7 +49,7 @@ A card image has two parts:
 
 - The stock U-Boot and its env. They come from the stock SD card of your
   panel. This repository and its releases do not hold them.
-- The kernel, the ramdisk placeholder and the root file system. The release
+- The kernel, the ramdisk (the boot splash) and the root file system. The release
   assets hold them (`tsx-xx50-card-parts.tar.zst`), or you build them.
 
 `image/mkcard.sh` puts the two parts together on your machine. See
@@ -72,11 +73,29 @@ retry counter cannot select another kernel.
 
 The U-Boot has no FDT support and no `bootz`. The kernel is a zImage with the
 board DTB appended (`CONFIG_ARM_APPENDED_DTB`), packed as a legacy uImage with
-load and entry address 0x70008000. The decompressor merges the ATAG memory
+load and entry address 0x71000000. The decompressor merges the ATAG memory
 banks into the DTB (`CONFIG_ARM_ATAG_DTB_COMPAT`). The U-Boot command line is
 an Android one, so the kernel uses its own fixed command line
-(`CONFIG_CMDLINE_FORCE`) with `root=PARTUUID=7458a050-02`. The ramdisk is a
-placeholder for `bootm`. It holds no `/init`.
+(`CONFIG_CMDLINE_FORCE`) with `root=PARTUUID=7458a050-02` and `fbcon=map:1`.
+
+Memory at boot:
+
+| Address | Content |
+|---|---|
+| 0x70008000 | the kernel that the zImage unpacks, up to the end of its bss |
+| 0x70800000 | the uImage as U-Boot reads it from the slot |
+| 0x70D00000 | the uInitrd. U-Boot gives it to the kernel at this address. |
+| 0x71000000 | the zImage. U-Boot copies it from the uImage. |
+
+The kernel must end below 0x70D00000. `kernel/build-kernel.sh` stops with an
+error if it does not. The zImage starts above the kernel, so it does not move
+itself over the ramdisk.
+
+The ramdisk shows the boot splash (`image/mkinitrd.sh`). Its `/init` draws the
+splash of tsx-linux-common on the framebuffer, mounts the root partition and
+starts `/sbin/init` there. The kernel keeps its text console off the LCD
+(`fbcon=map:1`), so the splash stays on the screen until the panel app takes
+the display. See [docs/hardware.md](docs/hardware.md), "Boot splash".
 
 ## Card layout
 
@@ -102,7 +121,7 @@ config is `imx_v6_v7_defconfig` plus `arch/arm/configs/tsx-xx50.config`.
 ## Build
 
 ```sh
-[AUTHORIZED_KEYS=<ssh public key file>] ./build.sh <kernel-tree> <stock-card-dump> [out-dir]
+TSX_COMMON=<tsx-linux-common checkout> [AUTHORIZED_KEYS=<ssh public key file>] ./build.sh <kernel-tree> <stock-card-dump> [out-dir]
 ```
 
 The build needs docker. Details, the single steps and the tests are in

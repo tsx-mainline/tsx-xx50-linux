@@ -14,7 +14,7 @@ how to set it up and what an update keeps.
 | tsx-panel-app | tsx-linux-common `panel-app/` | The service `tsx-panel-app`, the layout checker, the layout editor of the setup page |
 | tsx-xx50-board | this repo, `rootfs/overlay` | The board layer (see below) |
 | tsx-xx50-panel-app | this repo, `esphome-lvgl/` | The panel app program for the xx50 |
-| tsx-xx50-kernel-lts | the kernel bundle of a release of this repo | The kernel, the ramdisk placeholder and the modules. Optional, see "Kernel package". |
+| tsx-xx50-kernel-lts | the kernel bundle of a release of this repo | The kernel, the ramdisk (the boot splash) and the modules. Optional, see "Kernel package". |
 
 The xx50 does not install tsx-kiosk and tsx-ha. Without tsx-kiosk, the setup
 page has no page URL field. Without tsx-ha, the panel has no second ESPHome
@@ -185,7 +185,7 @@ tsx-xx50-kernel-lts gives the same kernel through `apk`:
 
 | File | Content |
 |---|---|
-| `/boot/uImage-lts`, `/boot/uInitrd-lts` | The kernel and the ramdisk placeholder |
+| `/boot/uImage-lts`, `/boot/uInitrd-lts` | The kernel and the ramdisk (the boot splash) |
 | `/lib/modules/<release>/` | The modules |
 
 At install and at upgrade, the package runs
