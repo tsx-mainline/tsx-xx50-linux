@@ -1,0 +1,185 @@
+# panel-app.yaml: the panel app of the xx50 panels (800x480). The display is
+# tsx_drm (DRM/KMS dumb buffers and page flips), touch and keys come from
+# tsx_evdev (the input device of the touch controller). No SDL, no EGL. The
+# generic part (api, fonts, LVGL, the components tsx_cards, tsx_runtime,
+# tsx_drm and tsx_evdev, the patches) is in tsx-linux-common
+# panel-app/esphome. build.sh copies it to tsx-panel-app/ next to this file.
+# The cards come from a JSON layout file at run time (panel-layout.json of
+# this folder is the example of one panel, rootfs/overlay/etc/tsx/
+# panel-layout.json the board default).
+#
+#   esphome-lvgl/build.sh esphome-lvgl/panel-app.yaml <work-dir>
+#
+# The program has no value of one panel: the service tsx-panel-app sets the
+# device name, the friendly name and the MAC at start, and the API key comes
+# from /run/tsx/esphome.key (tsx_runtime). One program serves every xx50
+# panel. The names and the MAC below are only the fallback.
+
+esphome:
+  name: tsx-xx50-panel
+  friendly_name: xx50 panel
+  # PlatformIO native builds have no optimisation by default.
+  build_flags:
+    - -O2
+
+host:
+  mac_address: "02:00:00:00:00:00"
+
+packages:
+  panel_app: !include tsx-panel-app/panel-app.yaml
+
+external_components:
+  - source:
+      type: local
+      path: tsx-panel-app/components
+    components: [tsx_cards, tsx_runtime, tsx_drm, tsx_evdev, tsx_leds]
+
+# The size comes from the display mode (800x480). tsx_drm sets the LVGL
+# byte order to little_endian.
+# The dark screen is a black frame with the output on. DPMS off also cuts
+# the panel supply, and a panel that comes on again shows a white frame
+# before the picture (the white flash at the wake: the backlight came on
+# about 25 ms after the output). With the black frame the picture is back
+# at the next vertical blank, before the backlight. dpms_after can turn
+# the output off after a long dark time (0s: never); power_on_delay then
+# keeps the backlight off while the panel starts.
+display:
+  - platform: tsx_drm
+    id: panel_display
+    off_mode: black
+    dpms_after: 0s
+    power_on_delay: 150ms
+
+tsx_evdev:
+  - id: panel_input
+    name: ft5x06
+    # The ft5x06 reports up to 5 fingers. A five-finger tap opens the
+    # settings overlay (tsx_cards input_id).
+    tap_time: 600ms
+
+# The board part of tsx_cards (the generic part is in panel-app.yaml of
+# tsx-panel-app). The screen goes dark with the backlight off and a black
+# frame on the display, so the glass shows no picture in room light.
+tsx_cards:
+  input_id: panel_input
+  panel_lights: [light_bar_left, light_bar_right]
+  key_events:
+    power: key_power_event
+    home: key_home_event
+    lights: key_lights_event
+    up: key_up_event
+    down: key_down_event
+  on_screen:
+    - lambda: id(panel_display).set_power(on);
+  # tsx_evdev ends the wait of the main loop at once for a touch or a key,
+  # so a slower loop while the screen is dark adds no wake time.
+  screen_off_loop_interval: 100ms
+
+# The two light bars (leds-group-multicolor devices of the TLC59116 drivers,
+# see docs/hardware.md "Light bars"). They are off after each start.
+light:
+  - platform: tsx_leds
+    id: light_bar_left
+    name: Light bar left
+    led: rgb:lightbar-left
+    icon: mdi:led-strip-variant
+    restore_mode: ALWAYS_OFF
+    default_transition_length: 200ms
+  - platform: tsx_leds
+    id: light_bar_right
+    name: Light bar right
+    led: rgb:lightbar-right
+    icon: mdi:led-strip-variant
+    restore_mode: ALWAYS_OFF
+    default_transition_length: 200ms
+
+# The keys as Home Assistant event entities, the same names and event types
+# as on the kiosk panels ("press" at the release, "long" after 0.8 s). A
+# press that wakes the screen sends no event.
+event:
+  - platform: template
+    id: key_power_event
+    name: Key power
+    device_class: button
+    event_types: [press, long]
+  - platform: template
+    id: key_home_event
+    name: Key home
+    device_class: button
+    event_types: [press, long]
+  - platform: template
+    id: key_lights_event
+    name: Key lights
+    device_class: button
+    event_types: [press, long]
+  - platform: template
+    id: key_up_event
+    name: Key up
+    device_class: button
+    event_types: [press, long]
+  - platform: template
+    id: key_down_event
+    name: Key down
+    device_class: button
+    event_types: [press, long]
+
+# The touch range comes from the input device. Each touch report reaches
+# LVGL in the next loop, so a fast swipe keeps all its points.
+touchscreen:
+  - platform: tsx_evdev
+    id: panel_touch
+
+# The five touch keys right of the screen (KEY_F13 to KEY_F17, top to
+# bottom, see rootfs/overlay/etc/tsx/buttons-board.conf). The names are the
+# key names of buttons-board.conf. The layout file maps a name to an action
+# ("keys"). Without an entry: home shows page 1, up and down change the
+# page, power opens the settings overlay, lights turns the light bars on or
+# off. trigger_on_initial_state: the first press after the start is the
+# first state of the sensor. Without the option, ESPHome does not run
+# on_state for it, and the first press of each key is lost.
+binary_sensor:
+  - platform: tsx_evdev
+    id: key_power
+    key: KEY_F13
+    internal: true
+    trigger_on_initial_state: true
+    on_state:
+      - lambda: id(panel_cards).key_state("power", x);
+  - platform: tsx_evdev
+    id: key_home
+    key: KEY_F14
+    internal: true
+    trigger_on_initial_state: true
+    on_state:
+      - lambda: id(panel_cards).key_state("home", x);
+  - platform: tsx_evdev
+    id: key_lights
+    key: KEY_F15
+    internal: true
+    trigger_on_initial_state: true
+    on_state:
+      - lambda: id(panel_cards).key_state("lights", x);
+  - platform: tsx_evdev
+    id: key_up
+    key: KEY_F16
+    internal: true
+    trigger_on_initial_state: true
+    on_state:
+      - lambda: id(panel_cards).key_state("up", x);
+  - platform: tsx_evdev
+    id: key_down
+    key: KEY_F17
+    internal: true
+    trigger_on_initial_state: true
+    on_state:
+      - lambda: id(panel_cards).key_state("down", x);
+
+# Test aid: `touch /run/tsx/panel-app.snapshot` saves the screen as a BMP
+# file in $ESPHOME_SNAPSHOT_DIR (the board file panel-app-board.conf sets
+# /tmp/panel-app-snapshots).
+interval:
+  - interval: 2s
+    then:
+      - lambda: |-
+          if (std::remove("/run/tsx/panel-app.snapshot") == 0)
+            id(panel_display).take_snapshot(nullptr);

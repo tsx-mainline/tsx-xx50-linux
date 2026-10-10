@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "grid": {"columns": 4, "rows": 3, "gap": 10},
+  "keys": {
+    "home": "page:1",
+    "up": "prev_page",
+    "down": "next_page",
+    "power": "overlay",
+    "lights": "lights"
+  },
+  "pages": [
+    {
+      "name": "Kitchen",
+      "cards": [
+        {"type": "clock", "w": 2},
+        {"type": "weather", "entity_id": "weather.home", "w": 2},
+        {"type": "light", "entity_id": "light.kitchen", "label": "Kitchen"},
+        {"type": "light", "entity_id": "light.kitchen_cabinets", "label": "Cabinets", "icon": "mdi:led-strip-variant"},
+        {"type": "light", "entity_id": "light.dining_room", "label": "Dining Room", "icon": "mdi:light-recessed"},
+        {"type": "light", "entity_id": "light.front_porch", "label": "Front Porch", "icon": "mdi:outdoor-lamp"},
+        {"type": "light", "entity_id": "light.living_room_panels", "label": "Light Panels"},
+        {"type": "sensor", "entity_id": "sensor.oven_state", "label": "Oven", "icon": "mdi:stove"},
+        {"type": "sensor", "entity_id": "climate.oven", "attribute": "current_temperature", "unit": "°C", "label": "Oven temperature", "icon": "mdi:thermometer"},
+        {"type": "sensor", "entity_id": "sensor.basement_temperature", "label": "Basement", "precision": 1}
+      ]
+    },
+    {
+      "name": "Home",
+      "cards": [
+        {"type": "clock", "w": 2, "format": "%H:%M", "date_format": "%A %d %B"},
+        {"type": "sensor", "entity_id": "sensor.office_temperature", "label": "Office", "precision": 1},
+        {"type": "switch", "entity_id": "input_boolean.vacation_mode", "label": "Vacation Mode", "icon": "mdi:airplane"},
+        {"type": "scene", "entity_id": "scene.outside_lights", "label": "Outside Lights"},
+        {"type": "script", "entity_id": "script.good_night", "label": "Good Night"},
+        {"type": "switch", "entity_id": "switch.night_light", "label": "Night Light"}
+      ]
+    }
+  ]
+}

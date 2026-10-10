@@ -6,7 +6,7 @@
 #  - tsx-hw writes the facts of the TSS-752
 #  - the board file of the panel app gives the panel app service its
 #    environment (tsx-panel-app-run --print)
-#  - the default layout passes tsx-layout-check
+#  - the default layout and the example layout pass tsx-layout-check
 # It needs sh, python3 and dd. It runs no compiler.
 set -eu
 HERE=$(cd "$(dirname "$0")/.." && pwd)
@@ -44,6 +44,8 @@ echo "$out" | grep -q 'ESPHOME_SNAPSHOT_DIR=' && ok "board environment" || bad "
 echo "== default layout =="
 TSX_ICON_FILE="$COMMON/panel-app/usr/local/share/tsx/panel-app/icons.txt" python3 "$COMMON/panel-app/usr/local/bin/tsx-layout-check" "$OV/etc/tsx/panel-layout.json" > "$T/check" 2>&1 \
 	&& ok "panel-layout.json passes" || bad "panel-layout.json: $(cat "$T/check")"
+TSX_ICON_FILE="$COMMON/panel-app/usr/local/share/tsx/panel-app/icons.txt" python3 "$COMMON/panel-app/usr/local/bin/tsx-layout-check" "$HERE/esphome-lvgl/panel-layout.json" > "$T/check" 2>&1 \
+	&& ok "the example layout passes" || bad "esphome-lvgl/panel-layout.json: $(cat "$T/check")"
 
 echo "== $N passed, $F failed"
 [ "$F" = 0 ]

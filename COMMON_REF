@@ -1,0 +1,3 @@
+# The tsx-linux-common tag that CI and a release build the panel app with
+# (panel-app/esphome) and that the tests run against.
+v0.3.0
