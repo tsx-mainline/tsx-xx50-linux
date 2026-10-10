@@ -1,0 +1,8 @@
+# Packages of tsx-aports (common and xx50). mkrootfs.sh installs them from a
+# local copy of the repository tree (TSX_APK_LOCAL).
+tsx-keys
+tsx-base
+tsx-setup
+tsx-xx50-board
+tsx-panel-app
+tsx-xx50-panel-app

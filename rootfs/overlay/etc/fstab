@@ -1,0 +1,8 @@
+# <fs>          <mountpoint>  <type>  <opts>                          <dump> <pass>
+LABEL=tsxroot   /             ext4    rw,noatime,commit=60            0      1
+# The data partition (p3). tsx-data moves /var/lib/tsx, /var/log, /root and
+# /home there at the first boot. A card without it keeps them on p2.
+LABEL=tsxdata   /data         ext4    rw,noatime,commit=60,nofail     0      2
+# The FAT log partition (p1), readable on any PC.
+LABEL=TSXLOG    /mnt/tsxlog   vfat    rw,noatime,flush,nofail         0      0
+tmpfs           /tmp          tmpfs   nosuid,nodev,mode=1777          0      0

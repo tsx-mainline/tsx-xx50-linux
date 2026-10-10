@@ -1,0 +1,37 @@
+# Alpine packages of the xx50 image (one per line). The panel software comes
+# from packages-tsx.txt.
+alpine-baselayout
+alpine-release
+alpine-keys
+apk-tools
+busybox
+busybox-openrc
+busybox-suid
+busybox-binsh
+openrc
+musl-utils
+eudev
+eudev-openrc
+kmod
+e2fsprogs
+dosfstools
+util-linux-misc
+tzdata
+ca-certificates
+logrotate
+ifupdown-ng
+chrony
+openssh-server
+openssh-sftp-server
+openssh-client-default
+curl
+python3
+i2c-tools
+evtest
+ethtool
+libgpiod
+alsa-utils
+htop
+# The panel app (tsx_drm display): libdrm and the C++ runtime.
+libdrm
+libstdc++

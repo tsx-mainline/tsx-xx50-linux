@@ -1,0 +1,9 @@
+# /etc/inittab (xx50). OpenRC starts the services. The panel app owns the
+# screen (KMSDRM), so there is no getty on tty1. Log in over ssh or on the
+# serial console (UART1, ttymxc0).
+::sysinit:/sbin/openrc sysinit
+::sysinit:/sbin/openrc boot
+::wait:/sbin/openrc default
+ttymxc0::respawn:/sbin/getty -L 115200 ttymxc0 vt100
+::ctrlaltdel:/sbin/reboot
+::shutdown:/sbin/openrc shutdown
