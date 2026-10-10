@@ -5,6 +5,8 @@
 #
 #   tests/test-boot-ok.sh
 #
+# Also: a good normal boot writes run/tsx/boot-ok with the slot sum
+# (TSX_BOOT_SLOTS), a golden boot does not.
 # Env: ALPINE_IMAGE (default alpine:3.24, armv7 as on the panel; a host of
 # another architecture needs qemu-user binfmt support). Needs docker and
 # python3. It runs no compiler.
@@ -38,13 +40,15 @@ apk add -q --no-cache u-boot-tools >/dev/null 2>&1
 N=0 F=0
 ok()  { N=$((N + 1)); echo "  ok: $*"; }
 bad() { F=$((F + 1)); echo "  FAIL: $*"; }
-bo() { TSX_MAC_DEV=/t/$1 TSX_RUN=/t/run TSX_BOARD_CONF=/src/rootfs/overlay/usr/local/lib/tsx/board.sh sh /src/rootfs/overlay/usr/local/sbin/tsx-boot-ok $2 2>&1; }
+bo() { TSX_BOOT_SLOTS=${SLOTS:-} TSX_MAC_DEV=/t/$1 TSX_RUN=/t/run TSX_BOARD_CONF=/src/rootfs/overlay/usr/local/lib/tsx/board.sh sh /src/rootfs/overlay/usr/local/sbin/tsx-boot-ok $2 2>&1; }
 penv() { printf '/t/%s 0xc0000 0x20000\n' "$1" > /t/run/cfg; fw_printenv -c /t/run/cfg 2>&1; }
 same() { [ "$(sha256sum /t/$1 | cut -d' ' -f1)" = "$(cat /t/$1.before)" ]; }
 mkdir -p /t/run
 
-out=$(bo normal.img write)
+out=$(SLOTS=abc123 bo normal.img write)
 echo "$out" | grep -q "env written and checked: boot_retry=8" && ok "normal boot: writes boot_retry=8" || bad "normal boot: $out"
+grep -qx slots=abc123 /t/run/tsx/boot-ok 2>/dev/null && ok "normal boot: marked good for promote" || bad "no boot-ok mark"
+rm -f /t/run/tsx/boot-ok
 e=$(penv normal.img)
 echo "$e" | grep -qi "bad crc" && bad "CRC bad after the write" || ok "CRC valid after the write"
 echo "$e" | grep -qx boot_retry=8 && echo "$e" | grep -qx golden_boot_retry=0 && ok "values after the write" || bad "values: $e"
@@ -52,8 +56,9 @@ echo "$e" | grep -qx bootdelay=3 && echo "$e" | grep -qx rd_loadaddr=0x70D00000 
 out=$(bo normal.img write)
 echo "$out" | grep -q "env already good" && ok "second run writes nothing" || bad "second run: $out"
 
-out=$(bo golden.img write)
+out=$(SLOTS=abc123 bo golden.img write)
 echo "$out" | grep -q "golden slots" && same golden.img && ok "golden boot: nothing written" || bad "golden boot: $out"
+[ ! -e /t/run/tsx/boot-ok ] && ok "golden boot: not marked good" || bad "golden boot: marked good"
 out=$(bo badcrc.img write); rc=$?
 [ $rc -ne 0 ] && echo "$out" | grep -q "CRC is bad" && same badcrc.img && ok "bad CRC: refused" || bad "bad CRC ($rc): $out"
 out=$(bo foreign.img write); rc=$?

@@ -96,7 +96,7 @@ MAC and the API key at start ([userland.md](userland.md), "Panel app").
 |---|---|---|
 | `ci/lint.sh` | `busybox sh -n` of the shell scripts, Python syntax, JSON, the doc links | busybox, python3 |
 | `tests/test-board.sh` | The board values from a made-up U-Boot env, `tsx-hw`, the panel app environment, the layouts | python3, a tsx-linux-common checkout (`TSX_COMMON`) |
-| `tests/test-kernel-slots.sh` | `tsx-kernel-slots` on a card image file | python3 |
+| `tests/test-kernel-slots.sh` | `tsx-kernel-slots` on a card image file: the write to the normal slots, `promote`, the refusals | python3 |
 | `tests/test-boot-ok.sh` | `tsx-boot-ok` on made-up U-Boot envs: the write, the read-back, the refusals | docker (an armv7 Alpine container with u-boot-tools), python3 |
 | `tests/test-update-card.sh` | `image/update-card.sh` on small card image files | e2fsprogs for the grow checks |
 | `tests/qemu-image.sh` | A full card image in QEMU (vexpress-a9): OpenRC, the data partition, the setup page, the ssh login. With `INITRD` (the `initrd.cpio.gz` of `image/mkinitrd.sh`), also the boot through the ramdisk | a card image, a kernel from `tests/build-qemu-kernel.sh`, qemu-system-arm |

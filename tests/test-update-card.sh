@@ -3,8 +3,9 @@
 # layout of image/mkcard.sh (MBR, a made-up U-Boot and env, the kernel slots,
 # p1, p2, p3), and runs the script on image files. It needs no root and
 # writes no /dev file. It checks:
-#  - an update writes the kernel slots and p2, and keeps the MBR, the U-Boot
-#    and env range, the gap, p1 and p3 byte for byte
+#  - an update writes the normal kernel slots and p2, and keeps the MBR, the
+#    U-Boot and env range, the gap, the golden slots, p1 and p3 byte for
+#    byte. --all-slots also writes the golden slots.
 #  - a .img.gz with a .sha256 file works, a wrong checksum is refused
 #  - the refusals: p2 start differs, new p2 larger, p3 too near, wrong disk
 #    id (and --force-id), no p3 (and --no-data), no partition table, no
@@ -128,13 +129,22 @@ same "kept: the gap between the slots" "$TGT" "$T/old.img" $R_GAP
 same "kept: p1" "$TGT" "$T/old.img" $R_P1
 same "kept: p3" "$TGT" "$T/old.img" $((OLD_P3 * 512)) $((P3SIZE * 512))
 same "written: uInitrd normal" "$TGT" "$T/new.img" $SL_IN_N $MB
-same "written: uInitrd golden" "$TGT" "$T/new.img" $SL_IN_G $MB
+same "kept: uInitrd golden" "$TGT" "$T/old.img" $SL_IN_G $MB
 same "written: uImage normal" "$TGT" "$T/new.img" $SL_KN_N $((4 * MB))
-same "written: uImage golden" "$TGT" "$T/new.img" $SL_KN_G $((4 * MB))
+same "kept: uImage golden" "$TGT" "$T/old.img" $SL_KN_G $((4 * MB))
 same "written: p2" "$TGT" "$T/new.img" $((P2_START * 512)) $((NEW_P2 * 512))
 differs "p2 changed" "$TGT" "$T/old.img" $((P2_START * 512)) $((NEW_P2 * 512))
 check "the file size is unchanged" test "$(wc -c < "$TGT")" -eq "$(wc -c < "$T/old.img")"
 grep -q "p3 kept" "$T/out" && ok "final line says p3 kept" || bad "final line"
+
+echo "== --all-slots =="
+fresh_target
+run $UCARGS --all-slots "$T/new.img" "$TGT"
+check "--all-slots: exit 0" test "$RC" -eq 0
+same "--all-slots: uInitrd golden written" "$TGT" "$T/new.img" $SL_IN_G $MB
+same "--all-slots: uImage golden written" "$TGT" "$T/new.img" $SL_KN_G $((4 * MB))
+same "--all-slots: uImage normal written" "$TGT" "$T/new.img" $SL_KN_N $((4 * MB))
+same "--all-slots: p3 kept" "$TGT" "$T/old.img" $((OLD_P3 * 512)) $((P3SIZE * 512))
 
 echo "== gz image and checksum =="
 cp "$T/new.img" "$T/nn.img"; gzip -k -f "$T/nn.img"
@@ -193,7 +203,8 @@ refused "target with no p3" "no p3"
 run $UCARGS --no-data "$T/new.img" "$TGT"
 check "--no-data: exit 0" test "$RC" -eq 0
 same "--no-data: p2 written" "$TGT" "$T/new.img" $((P2_START * 512)) $((NEW_P2 * 512))
-same "--no-data: uImage golden written" "$TGT" "$T/new.img" $SL_KN_G $((4 * MB))
+same "--no-data: uImage normal written" "$TGT" "$T/new.img" $SL_KN_N $((4 * MB))
+same "--no-data: uImage golden kept" "$TGT" "$T/nop3.img" $SL_KN_G $((4 * MB))
 same "--no-data: p1 kept" "$TGT" "$T/nop3.img" $R_P1
 check "--no-data: the file did not grow" test "$(wc -c < "$TGT")" -eq "$(wc -c < "$T/nop3.img")"
 
@@ -258,7 +269,7 @@ if command -v mke2fs >/dev/null 2>&1 && command -v e2fsck >/dev/null 2>&1 && com
 	grep -q "grow the file system of p2" "$T/out" && ok "the output shows the grow step" || bad "grow step"
 	same "p3 kept" "$TGT" "$T/oldbig.img" $(((P2_START + OLD_P2) * 512)) $((P3SIZE * 512))
 	same "p1 kept" "$TGT" "$T/oldbig.img" $R_P1
-	same "uImage golden written" "$TGT" "$T/newfs.img" $SL_KN_G $((4 * MB))
+	same "uImage normal written" "$TGT" "$T/newfs.img" $SL_KN_N $((4 * MB))
 	dd if="$TGT" of="$T/p2.after" bs=512 skip=$P2_START count=$OLD_P2 2>/dev/null
 	BC=$(dumpe2fs -h "$T/p2.after" 2>/dev/null | awk -F: '/^Block count/ {gsub(/ /, "", $2); print $2}')
 	BS=$(dumpe2fs -h "$T/p2.after" 2>/dev/null | awk -F: '/^Block size/ {gsub(/ /, "", $2); print $2}')

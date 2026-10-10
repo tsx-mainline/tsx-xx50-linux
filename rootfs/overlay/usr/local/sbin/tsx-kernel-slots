@@ -4,20 +4,33 @@
 # xx50 boot card, from the running panel.
 #
 #   tsx-kernel-slots write <uImage> <uInitrd>
+#   tsx-kernel-slots promote [--force]
 #   tsx-kernel-slots show
+#   tsx-kernel-slots sum
 #
 # The stock U-Boot reads a normal and a golden copy of each (image/mkcard.sh):
 #   0x100000  uInitrd, normal slot (1 MiB area, U-Boot reads 384 KiB)
 #   0x200000  uInitrd, golden slot
 #   0x800000  uImage, normal slot (4 MiB, U-Boot reads 4 MiB)
 #   0xC00000  uImage, golden slot
-# U-Boot selects the slot from its retry counters, so both slots must hold
-# the same files. "write" writes the normal slots first and reads them back.
-# Then it writes the golden slots and reads them back. If the power fails in
-# the first half, the golden slots still hold the last kernel. Each file is
-# padded with zeros to its slot. Nothing else on the card changes.
+# U-Boot boots the normal slots. After two failed boots it boots the golden
+# slots (tsx-boot-ok keeps the retry counters, README.md "Boot path"). So
+# the golden slots hold the last kernel that is known to boot.
 #
-# "show" prints the name in the uImage and uInitrd header of each slot.
+# "write" writes the new files into the normal slots only and reads them
+# back. The golden slots do not change. Each file is padded with zeros to its
+# slot. Nothing else on the card changes.
+#
+# "promote" copies the normal slots to the golden slots and reads them back.
+# It refuses unless this boot came from the normal slots, tsx-boot-ok marked
+# it good, and the normal slots still hold the files of this boot
+# ($TSX_RUN/tsx/boot-ok, written by tsx-boot-ok with the "sum" of the
+# normal slots at the start of the boot). --force skips these checks.
+#
+# "show" prints the name in the uImage and uInitrd header of each slot, and
+# whether the golden slots hold the same files as the normal slots.
+# "sum" prints the sha256 of the normal slots (the 4 MiB kernel area, then the
+# 1 MiB ramdisk area).
 #
 # Checks before the write: the card has the disk id of the image (0x7458a050)
 # and no partition below 16 MiB, the uImage is a legacy ARM kernel image of
@@ -25,11 +38,13 @@
 #
 # Env: TSX_CARD_DEV  the boot card (default /dev/mmcblk0). A file works too
 #                    (host tests).
+#      TSX_RUN       the run directory (default /run, host tests).
 # Exit status: 0 done, 1 refused or failed (a failed read-back check: run
 # the command again before a reboot).
 set -eu
 PATH=$PATH:/sbin:/usr/sbin
 DEV=${TSX_CARD_DEV:-/dev/mmcblk0}
+RUN=${TSX_RUN:-/run}
 MIB=1048576
 DISK_ID=$((0x7458a050))
 
@@ -90,6 +105,23 @@ slot() {
 	rm -f "$_pad"
 }
 
+# area_sum OFFSET BYTES...: sha256 of the card areas, one after the other.
+area_sum() {
+	{ while [ $# -ge 2 ]; do
+		dd if="$DEV" bs=$MIB skip=$(($1 / MIB)) count=$(($2 / MIB)) 2>/dev/null
+		shift 2
+	done; } | sha256sum | cut -d' ' -f1
+}
+normal_sum() { area_sum $((0x800000)) $((4 * MIB)) $((0x100000)) $MIB; }
+golden_sum() { area_sum $((0xC00000)) $((4 * MIB)) $((0x200000)) $MIB; }
+
+# copy NAME FROM TO AREA: copy a card area to another offset, read it back.
+copy() {
+	dd if="$DEV" of="$TMP/area" bs=$MIB skip=$(($2 / MIB)) count=$(($4 / MIB)) 2>/dev/null
+	[ "$(wc -c < "$TMP/area")" -eq "$4" ] || die "$1: the read of $(printf 0x%X "$2") failed"
+	slot "$1" "$TMP/area" "$3" "$4"
+}
+
 name_at() {
 	if [ "$(u32be "$DEV" "$1")" -eq $((0x27051956)) ]; then
 		dd if="$DEV" bs=1 skip=$(($1 + 32)) count=32 2>/dev/null | tr -d '\0'
@@ -106,12 +138,36 @@ write)
 	check_card
 	TMP=$(mktemp -d)
 	trap 'rm -rf "$TMP"' EXIT
-	echo "tsx-kernel-slots: $(dd if="$2" bs=1 skip=32 count=32 2>/dev/null | tr -d '\0') to $DEV"
+	echo "tsx-kernel-slots: $(dd if="$2" bs=1 skip=32 count=32 2>/dev/null | tr -d '\0') to the normal slots of $DEV"
 	slot "uInitrd normal" "$3" $((0x100000)) $MIB
 	slot "uImage normal" "$2" $((0x800000)) $((4 * MIB))
-	slot "uInitrd golden" "$3" $((0x200000)) $MIB
-	slot "uImage golden" "$2" $((0xC00000)) $((4 * MIB))
-	echo "tsx-kernel-slots: done. The new kernel starts at the next boot."
+	echo "tsx-kernel-slots: done. The new kernel starts at the next boot. The golden"
+	echo "slots keep the last good kernel. After good boots, run: tsx-kernel-slots promote"
+	;;
+promote)
+	[ $# -eq 1 ] || { [ $# -eq 2 ] && [ "$2" = --force ]; } || die "usage: tsx-kernel-slots promote [--force]"
+	check_card
+	if [ "${2:-}" != --force ]; then
+		ok=$RUN/tsx/boot-ok
+		[ -r "$ok" ] || die "no good boot from the normal slots is known ($ok is missing): nothing copied. tsx-boot-ok marks a boot 60 s after the start."
+		want=$(sed -n 's/^slots=//p' "$ok")
+		[ -n "$want" ] || die "$ok has no sum of the normal slots: nothing copied"
+		[ "$(normal_sum)" = "$want" ] || die "the normal slots changed after the start of this boot: nothing copied. Boot the new kernel first."
+	fi
+	if [ "$(normal_sum)" = "$(golden_sum)" ]; then
+		echo "tsx-kernel-slots: the golden slots already hold the files of the normal slots"
+		exit 0
+	fi
+	TMP=$(mktemp -d)
+	trap 'rm -rf "$TMP"' EXIT
+	echo "tsx-kernel-slots: copy the normal slots to the golden slots of $DEV"
+	copy "uInitrd golden" $((0x100000)) $((0x200000)) $MIB
+	copy "uImage golden" $((0x800000)) $((0xC00000)) $((4 * MIB))
+	echo "tsx-kernel-slots: done. The golden slots hold $(name_at $((0xC00000)))."
+	;;
+sum)
+	check_card
+	normal_sum
 	;;
 show)
 	check_card
@@ -119,6 +175,7 @@ show)
 	echo "uImage golden  (0xC00000): $(name_at $((0xC00000)))"
 	echo "uInitrd normal (0x100000): $(name_at $((0x100000)))"
 	echo "uInitrd golden (0x200000): $(name_at $((0x200000)))"
+	if [ "$(normal_sum)" = "$(golden_sum)" ]; then echo "golden = normal: yes"; else echo "golden = normal: no"; fi
 	;;
 *)
 	awk 'NR > 2 && !/^#/ {exit} NR > 2 {sub(/^# ?/, ""); print}' "$0"

@@ -18,17 +18,22 @@
 #   --force-id    accept a disk id other than 0x7458a050
 #   --tmpdir DIR  where the script unpacks a .gz image (default: $TMPDIR, /tmp)
 #   --sha256 FILE the checksum file of <new-image> (default: <new-image>.sha256)
+#   --all-slots   also write the golden slots (for a card with no good kernel
+#                 in its golden slots)
 #
 # The script writes these ranges from the new image to the same offsets of
 # the target, and nothing else:
 #   0x100000  uInitrd, normal slot, 1 MiB
-#   0x200000  uInitrd, golden slot, 1 MiB
 #   0x800000  uImage, normal slot, 4 MiB
-#   0xC00000  uImage, golden slot, 4 MiB
 #   p2        tsxroot, the root file system (start and size of the new image)
+#   0x200000  uInitrd, golden slot, 1 MiB   (only with --all-slots)
+#   0xC00000  uImage, golden slot, 4 MiB    (only with --all-slots)
 # The script keeps these ranges of the target as they are: the MBR, the stock
-# U-Boot and its env (0x400 to 0xE0000), p1 (TSXLOG) and p3 (tsxdata, /data).
-# So the settings, the layout, the keys and the logs on p3 stay.
+# U-Boot and its env (0x400 to 0xE0000), the golden slots, p1 (TSXLOG) and p3
+# (tsxdata, /data). So the settings, the layout, the keys and the logs on p3
+# stay. The golden slots keep the last good kernel: U-Boot boots them after
+# two failed boots of the normal slots. After good boots of the new kernel,
+# "tsx-kernel-slots promote" on the panel copies it to the golden slots.
 #
 # The script refuses to write when:
 #   - the new image has no valid p2, or is shorter than its p2
@@ -165,13 +170,14 @@ file_bytes() { # file or block device
 # ---- the main program ---------------------------------------------------------
 [ -z "${UPDATE_CARD_LIB:-}" ] || return 0
 
-YES=0 DRY=0 NODATA=0 FORCEID=0 TMPD=${TMPDIR:-/tmp} SHAFILE=
+YES=0 DRY=0 NODATA=0 FORCEID=0 ALLSLOTS=0 TMPD=${TMPDIR:-/tmp} SHAFILE=
 while [ $# -gt 0 ]; do
 	case $1 in
 	--yes|-y) YES=1 ;;
 	--dry-run|-n) DRY=1 ;;
 	--no-data) NODATA=1 ;;
 	--force-id) FORCEID=1 ;;
+	--all-slots) ALLSLOTS=1 ;;
 	--tmpdir) [ $# -ge 2 ] || { usage; exit 2; }; TMPD=$2; shift ;;
 	--sha256) [ $# -ge 2 ] || { usage; exit 2; }; SHAFILE=$2; shift ;;
 	-h|--help) usage; exit 0 ;;
@@ -330,16 +336,21 @@ if [ "$RESIZE" -eq 1 ]; then
 	fi
 fi
 RANGES="initrd-normal:$((0x100000)):$MIB
-initrd-golden:$((0x200000)):$MIB
 uImage-normal:$((0x800000)):$((4 * MIB))
-uImage-golden:$((0xC00000)):$((4 * MIB))
 p2-tsxroot:$P2_OFF:$P2_LEN"
+[ "$ALLSLOTS" -eq 0 ] || RANGES="$RANGES
+initrd-golden:$((0x200000)):$MIB
+uImage-golden:$((0xC00000)):$((4 * MIB))"
 say "plan: write to $TARGET ($KIND, $((TGT_BYTES / MIB)) MiB)"
 printf '   %-15s %12s %10s\n' range offset size
 echo "$RANGES" | while IFS=: read -r nm off len; do
 	printf '   %-15s 0x%08x %7d MiB\n' "$nm" "$off" $((len / MIB))
 done
-echo "   kept as they are: the MBR, the stock U-Boot and env (0x400 to 0xE0000), p1"
+if [ "$ALLSLOTS" -eq 1 ]; then
+	echo "   kept as they are: the MBR, the stock U-Boot and env (0x400 to 0xE0000), p1"
+else
+	echo "   kept as they are: the MBR, the stock U-Boot and env (0x400 to 0xE0000), the golden slots, p1"
+fi
 if [ "$HAVE_P3" -eq 1 ]; then
 	echo "   kept as it is: p3, the data partition (sector $T_start3, $((T_size3 / 2048)) MiB)"
 else

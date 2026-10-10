@@ -7,13 +7,17 @@
 # after a boot from the normal slots, and only when a value differs. Without
 # it, U-Boot goes to the golden slots after 10 boots and stays there for 5 of
 # every 7 boots. The check runs in the background, so it does not delay the
-# boot. The result goes to the system log (tag tsx-boot-ok).
+# boot. The result goes to the system log (tag tsx-boot-ok). At the start it
+# takes the sum of the normal kernel slots (tsx-kernel-slots sum), so that
+# "tsx-kernel-slots promote" knows which kernel booted.
 description="Reset the U-Boot retry counters after a good boot"
 BOOT_OK_DELAY=${BOOT_OK_DELAY:-60}
 depend() { after tsx-panel-app sshd; }
 start() {
 	ebegin "tsx-boot-ok: check the boot in ${BOOT_OK_DELAY} s"
-	( sleep "$BOOT_OK_DELAY"
+	( TSX_BOOT_SLOTS=$(/usr/local/sbin/tsx-kernel-slots sum 2>/dev/null) || TSX_BOOT_SLOTS=
+	  export TSX_BOOT_SLOTS
+	  sleep "$BOOT_OK_DELAY"
 	  if rc-service tsx-panel-app status >/dev/null 2>&1 || rc-service sshd status >/dev/null 2>&1; then
 		/usr/local/sbin/tsx-boot-ok 2>&1 | logger -t tsx-boot-ok
 	  else

@@ -82,8 +82,13 @@ golden path 5 times and the normal path 2 times, again and again.
 
 The board service `tsx-boot-ok` sets `boot_retry=8` and `golden_boot_retry=0`
 after a good boot from the normal path. So the next start boots the normal
-path. If the normal path fails two times, U-Boot boots the golden path. The
-image puts the same files in the normal and the golden slots.
+path. If the normal path fails two times, U-Boot boots the golden path.
+
+A new card has the same files in the normal and the golden slots. A kernel
+update (`tsx-kernel-slots write`, the package tsx-xx50-kernel-lts or
+`image/update-card.sh`) writes only the normal slots. So the golden slots
+keep the last kernel that is known to boot. After good boots of the new
+kernel, `tsx-kernel-slots promote` copies it to the golden slots.
 
 The U-Boot has no FDT support and no `bootz`. The kernel is a zImage with the
 board DTB appended (`CONFIG_ARM_APPENDED_DTB`), packed as a legacy uImage with

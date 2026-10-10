@@ -12,12 +12,17 @@ panel and use a Linux PC with a USB card reader.
 
 The script writes only these ranges, from the new image to the same offsets:
 
-- the two uInitrd slots (1 MiB each, at 0x100000 and 0x200000)
-- the two uImage slots (4 MiB each, at 0x800000 and 0xC00000)
+- the normal uInitrd slot (1 MiB at 0x100000)
+- the normal uImage slot (4 MiB at 0x800000)
 - p2 (`tsxroot`, the root file system)
 
-The script keeps the MBR, the stock U-Boot and its env, p1 (`TSXLOG`) and p3
-(`tsxdata`). So the settings, the layout, the keys and the logs stay.
+The script keeps the MBR, the stock U-Boot and its env, the golden slots, p1
+(`TSXLOG`) and p3 (`tsxdata`). So the settings, the layout, the keys and the
+logs stay. The golden slots keep the last good kernel. If the new kernel
+fails two times, U-Boot boots the golden slots. After good boots of the new
+kernel, run `tsx-kernel-slots promote` on the panel. It copies the new
+kernel to the golden slots. The option `--all-slots` also writes the golden
+slots.
 
 The new p2 replaces the old p2. A change outside `/var/lib/tsx`, `/var/log`,
 `/root` and `/home` is lost. Examples are a package that you installed and a
@@ -71,8 +76,8 @@ move.
 13. Do a dry run. Replace `sdX` with the disk of the card. The dry run
     also unpacks the image, but it writes nothing:
     `sudo image/update-card.sh --dry-run tsx-xx50-tss752.img.gz /dev/sdX`
-14. Read the plan. The plan must list the five ranges. It must say that p1
-    and p3 stay.
+14. Read the plan. The plan must list three ranges: `initrd-normal`,
+    `uImage-normal` and `p2-tsxroot`. It must say that p1 and p3 stay.
 15. Run the script:
     `sudo image/update-card.sh tsx-xx50-tss752.img.gz /dev/sdX`
 16. Type `yes` when the script asks.
@@ -126,6 +131,7 @@ reader needs longer.
 | `--tmpdir DIR` | Unpack the image in `DIR` (default: `$TMPDIR`, then `/tmp`) |
 | `--force-id` | Accept a disk id other than `0x7458a050` |
 | `--sha256 FILE` | Use `FILE` as the checksum file (default: `<image>.sha256`) |
+| `--all-slots` | Also write the golden slots. Use it when the golden slots of the card hold no good kernel. |
 
 `sudo` removes `TMPDIR` from the environment. Use `--tmpdir` to select
 another folder.

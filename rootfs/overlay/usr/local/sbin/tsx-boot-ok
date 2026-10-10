@@ -22,6 +22,11 @@
 # are unchanged. It refuses to write an env with a bad CRC or one that does
 # not look like the env of the stock TSS-752 U-Boot.
 #
+# After a good boot from the normal slots, the script also writes
+# $TSX_RUN/tsx/boot-ok with the sum of the normal slots at the start of the
+# boot (TSX_BOOT_SLOTS, from the service: tsx-kernel-slots sum). With it,
+# "tsx-kernel-slots promote" copies only a kernel that booted well.
+#
 # Test hooks: TSX_BOARD_CONF (board.sh), TSX_RUN (default /run),
 # TSX_FWENV_TIMEOUT (seconds, default 10).
 set -eu
@@ -69,7 +74,12 @@ write) ;;
 *) sed -n '2,4p' "$0" >&2; exit 2;;
 esac
 if [ "$golden" != 0 ]; then echo "U-Boot booted the golden slots ($now): nothing written"; exit 0; fi
-if [ -z "$want" ]; then echo "env already good ($now): nothing written"; exit 0; fi
+# mark_good: this boot from the normal slots is good (for tsx-kernel-slots promote).
+mark_good() {
+	[ -n "${TSX_BOOT_SLOTS:-}" ] || return 0
+	mkdir -p "$run/tsx" && printf 'slots=%s\n' "$TSX_BOOT_SLOTS" > "$run/tsx/boot-ok"
+}
+if [ -z "$want" ]; then mark_good; echo "env already good ($now): nothing written"; exit 0; fi
 
 scr=$run/tsx-boot-ok.setenv
 printf '%s' "$want" > "$scr"
@@ -85,4 +95,5 @@ EOF
 set --; for n in $names; do set -- "$@" -e "^$n="; done
 [ "$(printf '%s\n' "$env0" | grep -v "$@" || true)" = "$(printf '%s\n' "$env1" | grep -v "$@" || true)" ] ||
 	die "read-back: variables other than $names changed"
+mark_good
 echo "env written and checked: $(printf '%s' "$want" | tr ' \n' '=,' | sed 's/,$//') (was $now)"

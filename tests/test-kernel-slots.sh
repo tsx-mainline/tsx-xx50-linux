@@ -3,9 +3,12 @@
 # image file (TSX_CARD_DEV). It makes a 20 MiB card file with the MBR of
 # image/mkcard.sh and random bytes everywhere else, and made-up uImage and
 # uInitrd files (legacy U-Boot headers, random data). It checks:
-#  - "write" puts each file, padded with zeros, in its normal and golden
-#    slot, and changes no other byte of the card
-#  - "show" prints the image names of the four slots
+#  - "write" puts each file, padded with zeros, in its normal slot, and
+#    changes no other byte of the card (the golden slots stay)
+#  - "show" prints the image names of the four slots and whether golden and
+#    normal are the same
+#  - "promote" copies the normal slots to the golden slots only after a good
+#    boot of the same normal slots ($TSX_RUN/tsx/boot-ok), or with --force
 #  - the refusals, with no change to the card: a wrong disk id, a partition
 #    below 16 MiB, a uImage larger than 4 MiB, a uInitrd larger than 384 KiB,
 #    a file that is not a U-Boot image, a ramdisk given as the kernel
@@ -59,24 +62,48 @@ cp "$T/card" "$T/card.orig"
 
 echo "== write"
 if TSX_CARD_DEV="$T/card" $SH "$TOOL" write "$T/uImage" "$T/uInitrd" > "$T/out" 2>&1; then ok "write ends with 0"; else bad "write: $(cat "$T/out")"; fi
-for s in 0x800000 0xC00000; do
-	[ "$(range "$T/card" $((s)) $((4 * MIB)))" = "$(padded "$T/uImage" $((4 * MIB)))" ] && ok "uImage slot $s" || bad "uImage slot $s"
-done
-for s in 0x100000 0x200000; do
-	[ "$(range "$T/card" $((s)) $MIB)" = "$(padded "$T/uInitrd" $MIB)" ] && ok "uInitrd slot $s" || bad "uInitrd slot $s"
-done
-# Every other byte: the first MiB (MBR, U-Boot, env), 3..8 MiB, 16..20 MiB.
+[ "$(range "$T/card" $((0x800000)) $((4 * MIB)))" = "$(padded "$T/uImage" $((4 * MIB)))" ] && ok "uImage normal slot" || bad "uImage normal slot"
+[ "$(range "$T/card" $((0x100000)) $MIB)" = "$(padded "$T/uInitrd" $MIB)" ] && ok "uInitrd normal slot" || bad "uInitrd normal slot"
+# Every other byte, the golden slots too: 0..1 MiB (MBR, U-Boot, env),
+# 2..8 MiB (the golden ramdisk slot and the gap), 12..20 MiB.
+unchanged() {
+	for r in "0 1" "2 6" "12 8"; do
+		set -- $r
+		[ "$(range "$T/card" $(($1 * MIB)) $(($2 * MIB)))" = "$(range "$T/card.orig" $(($1 * MIB)) $(($2 * MIB)))" ] || return 1
+	done
+}
+unchanged && ok "no other byte changed (the golden slots stay)" || bad "bytes outside the normal slots changed"
+
+echo "== show and sum"
+TSX_CARD_DEV="$T/card" $SH "$TOOL" show > "$T/out" 2>&1 || true
+grep -q 'uImage normal  (0x800000): tsx-xx50 6.18.54-tsx-xx50' "$T/out" && grep -q 'golden = normal: no' "$T/out" \
+	&& ok "show" || bad "show: $(cat "$T/out")"
+sum=$(TSX_CARD_DEV="$T/card" $SH "$TOOL" sum 2>&1)
+want=$({ dd if="$T/card" bs=$MIB skip=8 count=4 2>/dev/null; dd if="$T/card" bs=$MIB skip=1 count=1 2>/dev/null; } | sha256sum | cut -d' ' -f1)
+[ "$sum" = "$want" ] && ok "sum of the normal slots" || bad "sum: $sum"
+
+echo "== promote"
+mkdir -p "$T/run/tsx"
+cp "$T/card" "$T/card.w"
+pr() { TSX_CARD_DEV="$T/card" TSX_RUN="$T/run" $SH "$TOOL" promote "$@" > "$T/out" 2>&1; }
+if pr; then bad "promote with no good boot: no refusal"; else cmp -s "$T/card" "$T/card.w" && ok "promote with no good boot: refused" || bad "promote with no good boot: card changed"; fi
+echo "slots=0000" > "$T/run/tsx/boot-ok"
+if pr; then bad "promote after another kernel booted: no refusal"; else cmp -s "$T/card" "$T/card.w" && ok "promote after another kernel booted: refused ($(head -n1 "$T/out"))" || bad "promote, other kernel: card changed"; fi
+echo "slots=$sum" > "$T/run/tsx/boot-ok"
+if pr; then ok "promote after a good boot"; else bad "promote: $(cat "$T/out")"; fi
+[ "$(range "$T/card" $((0xC00000)) $((4 * MIB)))" = "$(padded "$T/uImage" $((4 * MIB)))" ] && ok "uImage golden slot" || bad "uImage golden slot"
+[ "$(range "$T/card" $((0x200000)) $MIB)" = "$(padded "$T/uInitrd" $MIB)" ] && ok "uInitrd golden slot" || bad "uInitrd golden slot"
 same=1
 for r in "0 1" "3 5" "16 4"; do
 	set -- $r
 	[ "$(range "$T/card" $(($1 * MIB)) $(($2 * MIB)))" = "$(range "$T/card.orig" $(($1 * MIB)) $(($2 * MIB)))" ] || same=0
 done
-[ $same = 1 ] && ok "no other byte changed" || bad "bytes outside the slots changed"
-
-echo "== show"
-TSX_CARD_DEV="$T/card" $SH "$TOOL" show > "$T/out" 2>&1 || true
-grep -q 'uImage normal  (0x800000): tsx-xx50 6.18.54-tsx-xx50' "$T/out" && grep -q 'uInitrd golden (0x200000): tsx-xx50 initrd' "$T/out" \
-	&& ok "show" || bad "show: $(cat "$T/out")"
+[ $same = 1 ] && ok "promote: no byte outside the slots changed" || bad "promote: bytes outside the slots changed"
+TSX_CARD_DEV="$T/card" $SH "$TOOL" show 2>&1 | grep -q 'golden = normal: yes' && ok "show after promote: the same" || bad "show after promote"
+pr && grep -q "already hold" "$T/out" && ok "promote again: nothing to copy" || bad "promote again: $(cat "$T/out")"
+cp "$T/card.orig" "$T/card"; rm -f "$T/run/tsx/boot-ok"
+if pr --force; then ok "promote --force"; else bad "promote --force: $(cat "$T/out")"; fi
+[ "$(range "$T/card" $((0xC00000)) $((4 * MIB)))" = "$(range "$T/card.orig" $((0x800000)) $((4 * MIB)))" ] && ok "--force copies the normal kernel slot" || bad "--force: golden kernel slot"
 
 echo "== refusals"
 # refuse WHAT CARD UIMAGE UINITRD: the command fails and the card stays the same.
