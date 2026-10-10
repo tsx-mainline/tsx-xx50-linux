@@ -1,0 +1,32 @@
+#!/sbin/openrc-run
+# tsx-touch (xx50): keep the FT5x06 touch controller in its active scan mode.
+#
+# The controller (generic ft5x06, I2C address 0x38) goes to its "monitor"
+# mode after some time with no touch (register 0x86 ID_G_CTRL = 1, its
+# default): it scans slowly, and a short tap on a dark screen can be lost.
+# The factory driver wrote 0 to 0x86 (no automatic monitor mode) and 0 to
+# 0xA5 (active mode) at probe (DECODED: ft5x06_set_autoMonitor_state(ts, 0)
+# in ft5x06_ts_probe of the vendor 3.0.15 kernel). The mainline edt-ft5x06
+# driver keeps the default, so this service writes the two registers after
+# the driver has bound. The driver resets the controller only at probe, so
+# the values stay until the next boot. TOUCH_ALWAYS_ACTIVE=no in
+# /etc/tsx/panel-board.conf turns this off.
+description="TSX xx50 touch controller always active"
+depend() { after tsx-setup; }
+start() {
+	TOUCH_ALWAYS_ACTIVE=yes
+	[ -r /etc/tsx/panel-board.conf ] && . /etc/tsx/panel-board.conf
+	[ "$TOUCH_ALWAYS_ACTIVE" = yes ] || return 0
+	dev=
+	for d in /sys/bus/i2c/drivers/edt_ft5x06/*-0038; do [ -e "$d" ] && dev=${d##*/}; done
+	if [ -z "$dev" ]; then
+		ewarn "no FT5x06 touch controller bound: nothing to set"
+		return 0
+	fi
+	bus=${dev%-*}
+	ebegin "Touch controller $dev: active scan mode"
+	# -f: the driver owns the address. Each write is one I2C transfer, so
+	# it does not mix with the reads of the driver.
+	i2cset -f -y "$bus" 0x38 0x86 0x00 && i2cset -f -y "$bus" 0x38 0xa5 0x00
+	eend $? "the registers of the touch controller could not be written"
+}

@@ -1,0 +1,4 @@
+# busybox watchdog on /dev/watchdog (the i.MX53 SoC watchdog, imx2-wdt). The
+# panel resets when nothing feeds it for 60 s.
+WATCHDOG_OPTS="-T 60 -t 10"
+WATCHDOG_DEV="/dev/watchdog"

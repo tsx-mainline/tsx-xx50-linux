@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "grid": {"columns": 4, "rows": 3, "gap": 10},
+  "keys": {"home": "page:1", "up": "prev_page", "down": "next_page", "power": "overlay", "lights": "lights"},
+  "pages": [
+    {
+      "name": "Start",
+      "cards": [
+        {"type": "clock", "w": 4, "h": 3, "date_format": "%A %d %B"}
+      ]
+    }
+  ]
+}

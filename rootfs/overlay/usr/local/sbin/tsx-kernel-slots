@@ -1,0 +1,127 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Write a kernel (uImage) and a ramdisk (uInitrd) into the raw slots of the
+# xx50 boot card, from the running panel.
+#
+#   tsx-kernel-slots write <uImage> <uInitrd>
+#   tsx-kernel-slots show
+#
+# The stock U-Boot reads a normal and a golden copy of each (image/mkcard.sh):
+#   0x100000  uInitrd, normal slot (1 MiB area, U-Boot reads 384 KiB)
+#   0x200000  uInitrd, golden slot
+#   0x800000  uImage, normal slot (4 MiB, U-Boot reads 4 MiB)
+#   0xC00000  uImage, golden slot
+# U-Boot selects the slot from its retry counters, so both slots must hold
+# the same files. "write" writes the normal slots first and reads them back.
+# Then it writes the golden slots and reads them back. If the power fails in
+# the first half, the golden slots still hold the last kernel. Each file is
+# padded with zeros to its slot. Nothing else on the card changes.
+#
+# "show" prints the name in the uImage and uInitrd header of each slot.
+#
+# Checks before the write: the card has the disk id of the image (0x7458a050)
+# and no partition below 16 MiB, the uImage is a legacy ARM kernel image of
+# at most 4 MiB, the uInitrd is a legacy ramdisk image of at most 384 KiB.
+#
+# Env: TSX_CARD_DEV  the boot card (default /dev/mmcblk0). A file works too
+#                    (host tests).
+# Exit status: 0 done, 1 refused or failed (a failed read-back check: run
+# the command again before a reboot).
+set -eu
+PATH=$PATH:/sbin:/usr/sbin
+DEV=${TSX_CARD_DEV:-/dev/mmcblk0}
+MIB=1048576
+DISK_ID=$((0x7458a050))
+
+die() { echo "tsx-kernel-slots: $*" >&2; exit 1; }
+
+# u32be FILE OFFSET: a big-endian 32-bit value.
+u32be() {
+	set -- $(dd if="$1" bs=1 skip="$2" count=4 2>/dev/null | od -An -v -tu1)
+	[ $# -eq 4 ] || { echo 0; return; }
+	echo $(($1 * 16777216 + $2 * 65536 + $3 * 256 + $4))
+}
+# u8 FILE OFFSET
+u8() { dd if="$1" bs=1 skip="$2" count=1 2>/dev/null | od -An -tu1 | tr -d ' '; }
+# u32le FILE OFFSET
+u32le() {
+	set -- $(dd if="$1" bs=1 skip="$2" count=4 2>/dev/null | od -An -v -tu1)
+	[ $# -eq 4 ] || { echo 0; return; }
+	echo $(($1 + $2 * 256 + $3 * 65536 + $4 * 16777216))
+}
+
+# check_image FILE TYPE MAX: a legacy U-Boot image (magic 0x27051956) of
+# OS Linux (5), ARM (2) and image type TYPE (2 kernel, 3 ramdisk), whose
+# header and data fit in MAX bytes.
+check_image() {
+	[ -f "$1" ] || die "no file $1"
+	[ "$(u32be "$1" 0)" -eq $((0x27051956)) ] || die "$1 is not a legacy U-Boot image"
+	[ "$(u8 "$1" 28)" = 5 ] && [ "$(u8 "$1" 29)" = 2 ] && [ "$(u8 "$1" 30)" = "$2" ] ||
+		die "$1: not a Linux ARM image of type $2"
+	_sz=$(wc -c < "$1")
+	[ "$_sz" -le "$3" ] || die "$1: $_sz bytes, more than the $3 bytes that U-Boot reads"
+	[ $((64 + $(u32be "$1" 12))) -le "$_sz" ] || die "$1: shorter than its header says"
+}
+
+check_card() {
+	[ -e "$DEV" ] || die "no boot card $DEV"
+	[ "$(u32le "$DEV" 440)" -eq "$DISK_ID" ] || die "$DEV does not have the disk id 0x7458a050 of the xx50 card"
+	for _n in 0 1 2 3; do
+		_start=$(u32le "$DEV" $((446 + _n * 16 + 8)))
+		_size=$(u32le "$DEV" $((446 + _n * 16 + 12)))
+		[ "$_size" -eq 0 ] || [ "$_start" -ge 32768 ] || die "$DEV: partition $((_n + 1)) starts below 16 MiB"
+	done
+}
+
+# slot NAME FILE OFFSET AREA: pad FILE to AREA bytes, write it at OFFSET,
+# read it back and compare.
+slot() {
+	_pad=$TMP/$1.pad
+	dd if=/dev/zero of="$_pad" bs=$MIB count=$(($4 / MIB)) 2>/dev/null
+	dd if="$2" of="$_pad" conv=notrunc 2>/dev/null
+	_want=$(sha256sum < "$_pad" | cut -d' ' -f1)
+	echo "   $1: write $(wc -c < "$2") bytes at $(printf 0x%X "$3")"
+	dd if="$_pad" of="$DEV" bs=$MIB seek=$(($3 / MIB)) conv=notrunc,fsync 2>/dev/null || die "$1: the write failed"
+	sync
+	# Read the card, not the page cache.
+	[ ! -b "$DEV" ] || echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || true
+	_got=$(dd if="$DEV" bs=$MIB skip=$(($3 / MIB)) count=$(($4 / MIB)) 2>/dev/null | sha256sum | cut -d' ' -f1)
+	[ "$_got" = "$_want" ] || die "$1: the read-back check failed. Run the command again before a reboot."
+	rm -f "$_pad"
+}
+
+name_at() {
+	if [ "$(u32be "$DEV" "$1")" -eq $((0x27051956)) ]; then
+		dd if="$DEV" bs=1 skip=$(($1 + 32)) count=32 2>/dev/null | tr -d '\0'
+	else
+		echo "(no image)"
+	fi
+}
+
+case "${1:-}" in
+write)
+	[ $# -eq 3 ] || die "usage: tsx-kernel-slots write <uImage> <uInitrd>"
+	check_image "$2" 2 $((4 * MIB))
+	check_image "$3" 3 $((0x300 * 512))
+	check_card
+	TMP=$(mktemp -d)
+	trap 'rm -rf "$TMP"' EXIT
+	echo "tsx-kernel-slots: $(dd if="$2" bs=1 skip=32 count=32 2>/dev/null | tr -d '\0') to $DEV"
+	slot "uInitrd normal" "$3" $((0x100000)) $MIB
+	slot "uImage normal" "$2" $((0x800000)) $((4 * MIB))
+	slot "uInitrd golden" "$3" $((0x200000)) $MIB
+	slot "uImage golden" "$2" $((0xC00000)) $((4 * MIB))
+	echo "tsx-kernel-slots: done. The new kernel starts at the next boot."
+	;;
+show)
+	check_card
+	echo "uImage normal  (0x800000): $(name_at $((0x800000)))"
+	echo "uImage golden  (0xC00000): $(name_at $((0xC00000)))"
+	echo "uInitrd normal (0x100000): $(name_at $((0x100000)))"
+	echo "uInitrd golden (0x200000): $(name_at $((0x200000)))"
+	;;
+*)
+	awk 'NR > 2 && !/^#/ {exit} NR > 2 {sub(/^# ?/, ""); print}' "$0"
+	exit 2
+	;;
+esac

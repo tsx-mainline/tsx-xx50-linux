@@ -1,0 +1,3 @@
+   panel app:   rc-service tsx-panel-app status, log /var/log/tsx-panel-app.log
+   logs:        /var/log
+   FAT (TSXLOG): /mnt/tsxlog

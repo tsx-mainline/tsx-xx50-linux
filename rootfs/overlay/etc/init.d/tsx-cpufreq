@@ -1,0 +1,28 @@
+#!/sbin/openrc-run
+# tsx-cpufreq (xx50): set the CPU governor of the board and its settings at
+# boot. tsx-setup of tsx-base sets schedutil or ondemand, so this service
+# runs after it. /etc/tsx/panel-board.conf names them:
+#   CPUFREQ_AWAKE          the governor (ondemand, performance, ...)
+#   CPUFREQ_UP_THRESHOLD   ondemand: the load (percent) that goes to the top
+#   CPUFREQ_SAMPLING_RATE  ondemand: the sample time in microseconds
+# The panel app sets the frequency limits (CPUFREQ_BOOST_MS,
+# CPUFREQ_SCREEN_OFF), not this service.
+description="TSX xx50 CPU governor"
+depend() { after tsx-setup; }
+start() {
+	CPUFREQ_AWAKE=performance CPUFREQ_UP_THRESHOLD= CPUFREQ_SAMPLING_RATE=
+	[ -r /etc/tsx/panel-board.conf ] && . /etc/tsx/panel-board.conf
+	ebegin "CPU governor $CPUFREQ_AWAKE"
+	rc=0
+	for g in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
+		[ -w "$g" ] || continue
+		grep -qw "$CPUFREQ_AWAKE" "${g%/*}/scaling_available_governors" 2>/dev/null || { rc=1; continue; }
+		echo "$CPUFREQ_AWAKE" > "$g" || rc=1
+	done
+	d=/sys/devices/system/cpu/cpufreq/$CPUFREQ_AWAKE
+	if [ $rc = 0 ] && [ -d "$d" ]; then
+		[ -n "$CPUFREQ_UP_THRESHOLD" ] && [ -w "$d/up_threshold" ] && { echo "$CPUFREQ_UP_THRESHOLD" > "$d/up_threshold" || rc=1; }
+		[ -n "$CPUFREQ_SAMPLING_RATE" ] && [ -w "$d/sampling_rate" ] && { echo "$CPUFREQ_SAMPLING_RATE" > "$d/sampling_rate" || rc=1; }
+	fi
+	eend $rc "the governor $CPUFREQ_AWAKE or its settings could not be set"
+}

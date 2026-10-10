@@ -1,0 +1,65 @@
+#!/bin/sh
+# tsx-hw: the hardware facts of this panel, in one file (docs/hardware.md).
+#
+#   tsx-hw detect   write the facts file (root, at boot: /etc/init.d/tsx-config
+#                   runs it before tsx-config apply)
+#   tsx-hw get KEY  print one value from the facts file
+#   tsx-hw show     print the facts file
+#
+# The facts file is $TSX_RUN_DIR/hw.conf (default /run/tsx/hw.conf), mode
+# 644: root and the kiosk and tsx-setup users read it. The TSS-752 has one
+# model, so the facts are fixed:
+#   MIC=no        the panel has a digital (PDM) microphone, but the codec
+#                 driver has no digital microphone input yet
+#   BT=no         no Bluetooth module
+#   WIFI=no       no Wi-Fi
+#   CAMERA=no     no camera
+#   PRESENCE=no   no presence sensor
+#   LIGHT=no      no ambient light sensor
+#   LEDBAR=no     no USB port, so no USB LED bar. The two built-in light
+#                 bars are kernel LED devices: /sys/class/leds/rgb:lightbar-left
+#                 and rgb:lightbar-right (multi_intensity in the order green,
+#                 blue, red for each of the four RGB LEDs, brightness 0..256)
+#   REASON=TEXT   why the parts are missing
+#
+# The services read the file, not the system: tsx-config, tsx-bt, tsx-voice,
+# tsx-panelctl and the setup page. If the file is missing, they act as on a
+# panel with all parts.
+#
+# Test hook: TSX_RUN_DIR (the facts file directory).
+set -u
+RUN=${TSX_RUN_DIR:-/run/tsx}
+CONF=$RUN/hw.conf
+
+facts() {
+	echo "MIC=no"
+	echo "BT=no"
+	echo "WIFI=no"
+	echo "CAMERA=no"
+	echo "PRESENCE=no"
+	echo "LIGHT=no"
+	echo "LEDBAR=no"
+	echo "REASON=TSS-752: no microphone driver yet, no Bluetooth, no Wi-Fi, no camera, no presence or light sensor, no USB port"
+}
+
+case "${1:-}" in
+detect)
+	mkdir -p "$RUN" || exit 1
+	facts > "$CONF.tmp.$$" && chmod 644 "$CONF.tmp.$$" && mv "$CONF.tmp.$$" "$CONF" || {
+		rm -f "$CONF.tmp.$$"; echo "tsx-hw: cannot write $CONF" >&2; exit 1; }
+	msg=$(grep -v '^REASON=' "$CONF" | tr '\n' ' ' | sed 's/ $//')
+	echo "tsx-hw: $msg"
+	logger -t tsx-hw "$msg" 2>/dev/null || true
+	;;
+get)
+	[ $# = 2 ] || { echo "usage: tsx-hw get KEY" >&2; exit 2; }
+	case "$2" in ''|*[!A-Z]*) echo "tsx-hw: bad key name" >&2; exit 2;; esac
+	[ -r "$CONF" ] || { echo "tsx-hw: no $CONF (run tsx-hw detect as root)" >&2; exit 1; }
+	grep -q "^$2=" "$CONF" || exit 1
+	sed -n "s/^$2=//p" "$CONF" | tail -n 1
+	;;
+show)
+	cat "$CONF" 2>/dev/null || { echo "tsx-hw: no $CONF (run tsx-hw detect as root)" >&2; exit 1; }
+	;;
+*) sed -n '2,29p' "$0" >&2; exit 2;;
+esac
