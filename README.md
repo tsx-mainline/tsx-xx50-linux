@@ -65,11 +65,23 @@ That U-Boot reads fixed raw areas of the card and runs `bootm`:
 | normal | 0x4000, 0x2000 (4 MiB) | 0x0800, 0x300 (384 KiB) |
 | golden | 0x6000, 0x2000 (4 MiB) | 0x1000, 0x300 (384 KiB) |
 
-The U-Boot code writes `bootcmd_SD2` again on each start. It selects the
-normal or the golden path from `boot_retry`, `golden_boot_retry` and
-`IN_GOLDEN`. Both paths read only these raw areas. The image puts the same
-uImage in both kernel slots and the same uInitrd in both ramdisk slots. So a
-retry counter cannot select another kernel.
+U-Boot selects the path at each start and saves its env. It adds 1 to
+`boot_retry` and reads `golden_boot_retry`:
+
+| `boot_retry` after the step | `golden_boot_retry` | Path | Saved values |
+|---|---|---|---|
+| 1 to 10 | any | normal | `boot_retry`, `golden_boot_retry=0` |
+| 11 or more | 0 to 4 (adds 1) | golden | `boot_retry=11`, `golden_boot_retry` + 1 |
+| 11 or more | 5 (adds 1) | normal | `boot_retry=9`, `golden_boot_retry=0` |
+
+U-Boot sets `boot_retry` to 0 if it is larger than 12. Without a reset of
+the counters, the panel boots the normal path 10 times. Then it boots the
+golden path 5 times and the normal path 2 times, again and again.
+
+The board service `tsx-boot-ok` sets `boot_retry=8` and `golden_boot_retry=0`
+after a good boot from the normal path. So the next start boots the normal
+path. If the normal path fails two times, U-Boot boots the golden path. The
+image puts the same files in the normal and the golden slots.
 
 The U-Boot has no FDT support and no `bootz`. The kernel is a zImage with the
 board DTB appended (`CONFIG_ARM_APPENDED_DTB`), packed as a legacy uImage with

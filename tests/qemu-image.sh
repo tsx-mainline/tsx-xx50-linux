@@ -67,7 +67,7 @@ echo "   wait 30 s for the default runlevel"
 sleep 30
 $SSH 'rc-status -a' > "$W/rc-status-1.txt" 2>&1 || true
 sed 's/^/   | /' "$W/rc-status-1.txt"
-for s in tsx-setup tsx-hostname tsx-data tsx-config tsx-cpufreq tsx-touch tsx-setup-helper tsx-setupd networking sshd chronyd; do
+for s in tsx-setup tsx-hostname tsx-data tsx-config tsx-cpufreq tsx-touch tsx-boot-ok tsx-setup-helper tsx-setupd networking sshd chronyd; do
 	grep -E "^ *$s .*started" "$W/rc-status-1.txt" >/dev/null && pass "service $s started" || fail "service $s not started"
 done
 if [ -n "${INITRD:-}" ]; then

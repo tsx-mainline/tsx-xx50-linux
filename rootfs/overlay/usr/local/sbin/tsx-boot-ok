@@ -1,0 +1,88 @@
+#!/bin/sh
+# tsx-boot-ok [--status|--dry-run]: after a good boot from the normal slots,
+# set the retry counters of the stock U-Boot to boot_retry=8 and
+# golden_boot_retry=0.
+#
+# The stock U-Boot adds 1 to boot_retry at each start. It boots the normal
+# slots while boot_retry is 10 or less, and the golden slots from 11 on (see
+# README.md of the board repository, "Boot path"). With boot_retry=8 after
+# each good boot, the next start boots the normal slots (9). If that boot
+# fails, U-Boot tries the normal slots once more (10), then the golden slots
+# (11). So the golden slots are the fallback after two failed boots.
+#
+# The script writes nothing when U-Boot booted the golden slots (golden=1 in
+# the env): U-Boot then counts the golden boots itself and tries the normal
+# slots again after five of them. It writes nothing when the values are
+# already right.
+#
+# The env is one copy of 128 KiB at 0xC0000 of the boot card (board.sh:
+# TSX_MAC_DEV, TSX_ENV_OFFSET, TSX_ENV_SIZE) with a CRC32 in its first 4
+# bytes. The script writes it with fw_setenv (u-boot-tools) and reads it
+# back: the CRC is valid, the new values are there, and all other variables
+# are unchanged. It refuses to write an env with a bad CRC or one that does
+# not look like the env of the stock TSS-752 U-Boot.
+#
+# Test hooks: TSX_BOARD_CONF (board.sh), TSX_RUN (default /run),
+# TSX_FWENV_TIMEOUT (seconds, default 10).
+set -eu
+. "${TSX_BOARD_CONF:-/usr/local/lib/tsx/board.sh}"
+mode=${1:-write}
+die() { echo "tsx-boot-ok: $*" >&2; exit 1; }
+WANT_RETRY=8
+# fw_printenv can loop for ever on a wrong size in the config: limit each call.
+FWTO=${TSX_FWENV_TIMEOUT:-10}
+FWTO_CMD=; command -v timeout >/dev/null 2>&1 && FWTO_CMD="timeout -s KILL $FWTO"
+command -v fw_printenv >/dev/null 2>&1 || die "fw_printenv not found (install u-boot-tools)"
+[ -b "$TSX_MAC_DEV" ] || [ -f "$TSX_MAC_DEV" ] || die "no env device $TSX_MAC_DEV"
+
+run=${TSX_RUN:-/run}
+cfg=$run/tsx-fw_env.config
+printf '%s 0x%x 0x%x\n' "$TSX_MAC_DEV" "$TSX_ENV_OFFSET" "$TSX_ENV_SIZE" > "$cfg"
+readenv() {
+	out=$($FWTO_CMD fw_printenv -c "$cfg" 2>&1) || die "fw_printenv failed or timed out after ${FWTO} s: $out"
+	printf '%s\n' "$out" | grep -qi 'bad crc' && die "the env CRC is bad: nothing written"
+	printf '%s\n' "$out" | grep -q '^bootcmd_SD2=' && printf '%s\n' "$out" | grep -q '^rd_loadaddr=0x70D00000$' ||
+		die "the env does not look like the env of the stock TSS-752 U-Boot: nothing written"
+	printf '%s\n' "$out"
+}
+getv() { printf '%s\n' "$1" | sed -n "s/^$2=//p"; }
+
+env0=$(readenv)
+br=$(getv "$env0" boot_retry); gr=$(getv "$env0" golden_boot_retry); golden=$(getv "$env0" golden)
+now="boot_retry=$br golden_boot_retry=$gr golden=$golden"
+want=
+if [ "$golden" = 0 ]; then
+	[ "$br" = "$WANT_RETRY" ] || want="${want}boot_retry $WANT_RETRY
+"
+	[ "$gr" = 0 ] || want="${want}golden_boot_retry 0
+"
+fi
+names=$(printf '%s' "$want" | cut -d' ' -f1 | tr '\n' ' ')
+
+case "$mode" in
+--status) echo "env $TSX_MAC_DEV offset $TSX_ENV_OFFSET size $TSX_ENV_SIZE: $now"; exit 0;;
+--dry-run)
+	if [ -n "$want" ]; then echo "would set: $(printf '%s' "$want" | tr ' \n' '=,' | sed 's/,$//') (now $now)"
+	else echo "nothing to do ($now)"; fi
+	exit 0;;
+write) ;;
+*) sed -n '2,4p' "$0" >&2; exit 2;;
+esac
+if [ "$golden" != 0 ]; then echo "U-Boot booted the golden slots ($now): nothing written"; exit 0; fi
+if [ -z "$want" ]; then echo "env already good ($now): nothing written"; exit 0; fi
+
+scr=$run/tsx-boot-ok.setenv
+printf '%s' "$want" > "$scr"
+$FWTO_CMD fw_setenv -c "$cfg" -s "$scr" || die "fw_setenv failed or timed out after ${FWTO} s (wanted: $names)"
+rm -f "$scr"
+env1=$(readenv)
+while read -r n v; do
+	[ -n "$n" ] || continue
+	[ "$(getv "$env1" "$n")" = "$v" ] || die "read-back: $n is '$(getv "$env1" "$n")', not '$v'"
+done <<EOF
+$want
+EOF
+set --; for n in $names; do set -- "$@" -e "^$n="; done
+[ "$(printf '%s\n' "$env0" | grep -v "$@" || true)" = "$(printf '%s\n' "$env1" | grep -v "$@" || true)" ] ||
+	die "read-back: variables other than $names changed"
+echo "env written and checked: $(printf '%s' "$want" | tr ' \n' '=,' | sed 's/,$//') (was $now)"

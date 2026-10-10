@@ -31,6 +31,7 @@ the panel.
 | `/etc/tsx/panel-board.conf` | The backlight range, the CPU governor, the CPU boost of the panel app and the touch controller mode |
 | `/etc/init.d/tsx-cpufreq` | Sets the governor of `panel-board.conf` (`ondemand`, `up_threshold` 40, sampling rate 20 ms) after `tsx-setup` |
 | `/etc/init.d/tsx-touch` | Keeps the FT5x06 touch controller in its active scan mode (`TOUCH_ALWAYS_ACTIVE`), as the factory driver did |
+| `/etc/init.d/tsx-boot-ok`, `/usr/local/sbin/tsx-boot-ok` | 60 s after the start of the default runlevel, if the panel app or sshd runs: sets `boot_retry=8` and `golden_boot_retry=0` in the U-Boot env after a boot from the normal slots. It writes only when a value differs, and it checks the CRC and all other variables after the write. The result is in the system log (`tsx-boot-ok`). `tsx-boot-ok --status` shows the counters |
 | `/etc/conf.d/watchdog` | busybox watchdog on the SoC watchdog, 60 s |
 | `/etc/modules-load.d/tsx-xx50.conf` | Loads the GPU module `msm` |
 | `/etc/securetty` | The Alpine list plus `ttymxc0` |

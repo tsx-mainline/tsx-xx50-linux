@@ -27,6 +27,8 @@ openssh-client-default
 curl
 python3
 i2c-tools
+# fw_printenv and fw_setenv for tsx-boot-ok (the U-Boot retry counters).
+u-boot-tools
 evtest
 ethtool
 libgpiod

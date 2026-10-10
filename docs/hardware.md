@@ -66,7 +66,8 @@ shows the kernel log and the OpenRC messages until the panel app starts.
 
 If the root partition does not show up in 60 s, or `/sbin/init` is missing,
 `/init` shows the text console with the reason and stops. The kernel then
-restarts the panel after 10 s, as it does without a ramdisk.
+restarts the panel after 10 s, as it does without a ramdisk. After two
+failed boots, U-Boot boots the golden slots (see README.md, "Boot path").
 
 ## Touch
 

@@ -115,7 +115,7 @@ for s in devfs dmesg udev udev-trigger udev-settle; do rc-update -q add \$s sysi
 for s in root localmount modules sysctl hostname bootmisc syslog swclock seedrng udev-postmount machine-id tsx-setup tsx-hostname tsx-data tsx-config; do
 	[ -e /etc/init.d/\$s ] && rc-update -q add \$s boot || echo "no service \$s"
 done
-for s in tsx-cpufreq tsx-touch tsx-panel-app tsx-setup-helper tsx-setupd networking chronyd sshd crond watchdog local; do
+for s in tsx-cpufreq tsx-touch tsx-boot-ok tsx-panel-app tsx-setup-helper tsx-setupd networking chronyd sshd crond watchdog local; do
 	[ -e /etc/init.d/\$s ] && rc-update -q add \$s default || { echo "MISSING service \$s"; exit 1; }
 done
 for s in mount-ro killprocs savecache; do rc-update -q add \$s shutdown; done
