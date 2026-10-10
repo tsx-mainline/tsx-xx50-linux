@@ -1,0 +1,256 @@
+name: release
+on:
+  push:
+    tags:
+      - 'v*'
+  # Images only: build the card parts of an existing release again, from the
+  # kernel bundle of that release and the packages that are live now. Use it
+  # after the tsx-aports packages of a release went live. It replaces only
+  # the card parts asset and its line in SHA256SUMS.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'An existing release tag (for example v0.3.0)'
+        required: true
+        type: string
+
+# CI cannot build a full card image: the image needs the stock U-Boot and its
+# env from the stock SD card of the panel, and that is a Crestron file. CI
+# builds the parts. The user completes the card on their own machine with
+# image/mkcard.sh and a dump of their stock card (docs/install.md). No job
+# here downloads or packs a Crestron file.
+#
+# Assets of a release:
+#   tsx-xx50-kernel-lts-bundle.tar.zst  uImage, uInitrd, the board DTB, the
+#       modules, kernel.release, kernel.commit, CHECKSUMS.sha256. The package
+#       tsx-xx50-kernel-lts of tsx-aports pins it.
+#   tsx-xx50-panel-app-src-<version>.tar.gz  the generated C++ project of the
+#       panel app (esphome-lvgl/mksource.sh). The package tsx-xx50-panel-app
+#       of tsx-aports compiles it in abuild.
+#   tsx-xx50-panel-app-<version>.tar.gz  the program that this run compiled,
+#       with BUILDINFO (for a check, no package uses it).
+#   tsx-xx50-card-parts.tar.zst  kernel/ (uImage, kernel.release), work/
+#       (uInitrd, rootfs.ext4, data.ext4) and rootfs.manifest: the input of
+#       image/mkcard.sh. The root file system comes from the published
+#       packages, so this asset exists only when tsx-aports has the xx50
+#       packages of the release. The run of a tag push skips it when the
+#       published tree does not have them. Then run this workflow again
+#       with the tag (images only).
+#   SHA256SUMS
+#
+# Runners: the jobs that compile or run ARM code run on ubuntu-24.04-arm
+# (armv7 containers run natively there). The kernel is a cross build.
+jobs:
+  kernel:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: get the kernel of kernel/KERNEL_REV (kernel/fetch-kernel.sh)
+        run: kernel/fetch-kernel.sh ../linux
+
+      - name: build the kernel and the ramdisk
+        run: |
+          kernel/build-kernel.sh ../linux out/kernel
+          image/mkinitrd.sh out/kernel out/kernel
+
+      - name: pack the kernel bundle
+        run: |
+          set -eu
+          K=out/kernel
+          REL=$(cat $K/kernel.release)
+          B=out/kbundle
+          mkdir -p $B
+          cp $K/uImage $K/uInitrd $K/imx53-crestron-tss752.dtb $K/kernel.release $K/kernel.commit $B/
+          tar -C $K/modules --owner=0 --group=0 --numeric-owner -czf "$B/modules-$REL.tar.gz" lib
+          (cd $B && sha256sum uImage uInitrd imx53-crestron-tss752.dtb "modules-$REL.tar.gz" > CHECKSUMS.sha256)
+          cat $B/CHECKSUMS.sha256
+          tar --zstd -cf tsx-xx50-kernel-lts-bundle.tar.zst -C $B .
+          ls -l tsx-xx50-kernel-lts-bundle.tar.zst
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kbundle
+          path: tsx-xx50-kernel-lts-bundle.tar.zst
+          if-no-files-found: error
+
+  panel-app:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: read COMMON_REF and the version
+        id: v
+        run: |
+          echo "common=$(grep -v -e '^#' -e '^$' COMMON_REF)" >> "$GITHUB_OUTPUT"
+          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - name: check out tsx-linux-common ${{ steps.v.outputs.common }}
+        uses: actions/checkout@v4
+        with:
+          repository: tsx-mainline/tsx-linux-common
+          ref: ${{ steps.v.outputs.common }}
+          path: tsx-linux-common
+      - name: install python3-venv
+        run: sudo apt-get update -q && sudo apt-get install -y --no-install-recommends python3-venv
+      - name: build the panel app (esphome-lvgl/build.sh)
+        env:
+          TSX_COMMON: ${{ github.workspace }}/tsx-linux-common
+        run: esphome-lvgl/build.sh esphome-lvgl/panel-app.yaml out/esphome-lvgl
+      - name: pack the source archive and the program
+        env:
+          TSX_COMMON: ${{ github.workspace }}/tsx-linux-common
+        run: |
+          set -eu
+          V=${{ steps.v.outputs.version }}
+          esphome-lvgl/mksource.sh out/esphome-lvgl out/dist "$V"
+          D=$(mktemp -d)
+          mkdir -p "$D/tsx-xx50-panel-app-$V"
+          cp out/esphome-lvgl/tsx-xx50-panel "$D/tsx-xx50-panel-app-$V/tsx-panel-app"
+          tar -xzOf "out/dist/tsx-xx50-panel-app-src-$V.tar.gz" "tsx-xx50-panel-app-$V/BUILDINFO" > "$D/tsx-xx50-panel-app-$V/BUILDINFO"
+          tar -C "$D" --owner=0 --group=0 --numeric-owner -czf "out/dist/tsx-xx50-panel-app-$V.tar.gz" "tsx-xx50-panel-app-$V"
+          ls -l out/dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: panel-app
+          path: out/dist
+          if-no-files-found: error
+
+  # The card parts. On a tag push this job waits for the kernel job. On a
+  # manual run it takes the kernel bundle of the existing release.
+  card-parts:
+    needs: kernel
+    if: ${{ !cancelled() && (needs.kernel.result == 'success' || github.event_name == 'workflow_dispatch') }}
+    runs-on: ubuntu-24.04-arm
+    outputs:
+      built: ${{ steps.check.outputs.built }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      # The card parts need the packages of this release: tsx-xx50-board and
+      # tsx-xx50-panel-app with the version of the tag.
+      - name: does the published tree have the xx50 packages of this release?
+        id: check
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          V=${TAG#v}
+          IDX=$(curl -fsSL https://tsx-aports.unexceptional.net/v3.24/xx50/armv7/APKINDEX.tar.gz | tar -xzO APKINDEX 2>/dev/null || true)
+          have() { printf '%s\n' "$IDX" | awk -v p="$1" -v v="$V" '/^P:/{n=substr($0,3)} /^V:/{if (n == p && index(substr($0,3), v "-r") == 1) f=1} END{exit !f}'; }
+          if have tsx-xx50-board && have tsx-xx50-panel-app; then
+            echo "built=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::The published tree has no xx50 packages $V. No card parts in this run. Run the workflow again with the tag when the packages are live."
+            echo "built=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/download-artifact@v4
+        if: steps.check.outputs.built == 'true' && github.event_name == 'push'
+        with:
+          name: kbundle
+
+      - name: download the kernel bundle of ${{ inputs.tag }}
+        if: steps.check.outputs.built == 'true' && github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release download "${{ inputs.tag }}" --pattern tsx-xx50-kernel-lts-bundle.tar.zst
+
+      - name: unpack the kernel bundle
+        if: steps.check.outputs.built == 'true'
+        run: |
+          set -eu
+          mkdir -p out/kernel/modules
+          tar --zstd -xf tsx-xx50-kernel-lts-bundle.tar.zst -C out/kernel
+          (cd out/kernel && sha256sum -c CHECKSUMS.sha256)
+          tar -xzf out/kernel/modules-$(cat out/kernel/kernel.release).tar.gz -C out/kernel/modules
+
+      # No AUTHORIZED_KEYS: the image has no root key. The user sets it on
+      # the setup page (docs/install.md).
+      - name: build the root file system from the published packages (rootfs/mkrootfs.sh)
+        if: steps.check.outputs.built == 'true'
+        env:
+          TSX_REV: ${{ inputs.tag || github.ref_name }}
+        run: rootfs/mkrootfs.sh out/kernel out/work
+
+      - name: pack the card parts
+        if: steps.check.outputs.built == 'true'
+        run: |
+          set -eu
+          P=out/parts
+          mkdir -p $P/kernel $P/work
+          cp out/kernel/uImage out/kernel/kernel.release $P/kernel/
+          cp out/kernel/uInitrd out/work/rootfs.ext4 out/work/data.ext4 $P/work/
+          cp out/work/rootfs.manifest $P/
+          # Only these files. None of them comes from a stock card.
+          (cd $P && find . -type f | sort) | tee parts.list
+          [ "$(cat parts.list | tr '\n' ' ')" = "./kernel/kernel.release ./kernel/uImage ./rootfs.manifest ./work/data.ext4 ./work/rootfs.ext4 ./work/uInitrd " ]
+          tar --zstd -cf tsx-xx50-card-parts.tar.zst -C $P .
+          ls -l tsx-xx50-card-parts.tar.zst
+
+      - uses: actions/upload-artifact@v4
+        if: steps.check.outputs.built == 'true'
+        with:
+          name: card-parts
+          path: tsx-xx50-card-parts.tar.zst
+          if-no-files-found: error
+
+  publish:
+    needs: [kernel, panel-app, card-parts]
+    if: ${{ !cancelled() && needs.card-parts.result == 'success' && (github.event_name == 'workflow_dispatch' || (needs.kernel.result == 'success' && needs.panel-app.result == 'success')) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        if: github.event_name == 'push'
+        with:
+          name: kbundle
+          path: release
+
+      - uses: actions/download-artifact@v4
+        if: github.event_name == 'push'
+        with:
+          name: panel-app
+          path: release
+
+      - uses: actions/download-artifact@v4
+        if: needs.card-parts.outputs.built == 'true'
+        with:
+          name: card-parts
+          path: release
+
+      - name: attach the build to the GitHub release of the tag
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -eu
+          TAG=${{ github.ref_name }}
+          (cd release && sha256sum * | sort -k2 > SHA256SUMS && cat SHA256SUMS)
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$TAG" --generate-notes
+          gh release upload "$TAG" release/* --clobber
+
+      # Images only: keep every SHA256SUMS line of the other assets and
+      # replace the line of the card parts.
+      - name: replace the card parts of the release (images only)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -eu
+          [ -f release/tsx-xx50-card-parts.tar.zst ] || { echo "no card parts: the published tree has no xx50 packages"; exit 1; }
+          gh release view "$TAG" >/dev/null || { echo "no release $TAG: push the tag first"; exit 1; }
+          mkdir -p old
+          gh release download "$TAG" --pattern SHA256SUMS --dir old
+          cd release
+          { grep -v -E '  tsx-xx50-card-parts\.tar\.zst$' ../old/SHA256SUMS || true
+            sha256sum tsx-xx50-card-parts.tar.zst
+          } | sort -k2 > SHA256SUMS
+          cat SHA256SUMS
+          gh release upload "$TAG" tsx-xx50-card-parts.tar.zst SHA256SUMS --clobber

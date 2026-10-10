@@ -1,0 +1,46 @@
+name: panel-app
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    # ESPHome runs on the runner (arm64). The program compiles in an armv7
+    # Alpine container, which the arm64 runner runs natively.
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: read COMMON_REF
+        id: common
+        run: echo "ref=$(grep -v -e '^#' -e '^$' COMMON_REF)" >> "$GITHUB_OUTPUT"
+      - name: check out tsx-linux-common ${{ steps.common.outputs.ref }}
+        uses: actions/checkout@v4
+        with:
+          repository: tsx-mainline/tsx-linux-common
+          ref: ${{ steps.common.outputs.ref }}
+          path: tsx-linux-common
+      - name: cache the PlatformIO packages and the pip downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            out/esphome-lvgl/pio-core
+            ~/.cache/pip
+          key: panel-app-${{ hashFiles('esphome-lvgl/build.sh') }}
+      - name: install python3-venv
+        run: sudo apt-get update -q && sudo apt-get install -y --no-install-recommends python3-venv
+      - name: build the panel app (esphome-lvgl/build.sh esphome-lvgl/panel-app.yaml)
+        env:
+          TSX_COMMON: ${{ github.workspace }}/tsx-linux-common
+        run: esphome-lvgl/build.sh esphome-lvgl/panel-app.yaml out/esphome-lvgl
+      - name: pack the source archive (esphome-lvgl/mksource.sh)
+        env:
+          TSX_COMMON: ${{ github.workspace }}/tsx-linux-common
+        run: esphome-lvgl/mksource.sh out/esphome-lvgl out/dist "0.0.0-ci${{ github.run_number }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: panel-app
+          path: |
+            out/esphome-lvgl/tsx-xx50-panel
+            out/dist/*.tar.gz
+          if-no-files-found: error

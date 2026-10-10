@@ -1,0 +1,47 @@
+name: kernel
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    # The kernel is a cross build in the Debian container of ci/Dockerfile.
+    # Debian has the armhf cross compiler for arm64 hosts too.
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: cache the kernel tree
+        uses: actions/cache@v4
+        with:
+          path: ../linux
+          key: linux-xx50-${{ hashFiles('kernel/KERNEL_REV') }}
+
+      - name: get the kernel of kernel/KERNEL_REV (kernel/fetch-kernel.sh)
+        run: kernel/fetch-kernel.sh ../linux
+
+      - name: build the kernel (kernel/build-kernel.sh) and the ramdisk (image/mkinitrd.sh)
+        run: |
+          kernel/build-kernel.sh ../linux out/kernel
+          image/mkinitrd.sh out/kernel out/kernel
+
+      - name: kernel release, commit, sizes
+        id: info
+        run: |
+          echo "release=$(cat out/kernel/kernel.release)" >> "$GITHUB_OUTPUT"
+          cat out/kernel/kernel.release out/kernel/kernel.commit
+          ls -l out/kernel/uImage out/kernel/uInitrd out/kernel/*.dtb
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kernel-${{ steps.info.outputs.release }}
+          path: |
+            out/kernel/uImage
+            out/kernel/uInitrd
+            out/kernel/zImage-dtb
+            out/kernel/*.dtb
+            out/kernel/kernel.release
+            out/kernel/kernel.commit
+            out/kernel/kernel.config
+          if-no-files-found: error

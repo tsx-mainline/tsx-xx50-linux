@@ -1,0 +1,57 @@
+name: tests
+on:
+  push:
+  pull_request:
+
+jobs:
+  lint:
+    name: syntax and links (ci/lint.sh)
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: install busybox
+        run: sudo apt-get update -q && sudo apt-get install -y --no-install-recommends busybox
+      - name: ci/lint.sh
+        run: sh ci/lint.sh
+
+  # The host tests need no hardware and no compiler. tests/test-board.sh runs
+  # the board layer with the shared code of tsx-linux-common (the tag in
+  # COMMON_REF). The panels run busybox sh, so the tests run with it.
+  host-tests:
+    name: host tests (no hardware)
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: read COMMON_REF
+        id: common
+        run: echo "ref=$(grep -v -e '^#' -e '^$' COMMON_REF)" >> "$GITHUB_OUTPUT"
+      - name: check out tsx-linux-common ${{ steps.common.outputs.ref }}
+        uses: actions/checkout@v4
+        with:
+          repository: tsx-mainline/tsx-linux-common
+          ref: ${{ steps.common.outputs.ref }}
+          path: tsx-linux-common
+      - name: install the tools of the tests
+        run: sudo apt-get update -q && sudo apt-get install -y --no-install-recommends busybox e2fsprogs
+      - name: use busybox sh as sh
+        run: |
+          mkdir -p "$RUNNER_TEMP/sh-busybox"
+          printf '#!/bin/sh\nexec busybox sh "$@"\n' > "$RUNNER_TEMP/sh-busybox/sh"
+          chmod 755 "$RUNNER_TEMP/sh-busybox/sh"
+          echo "$RUNNER_TEMP/sh-busybox" >> "$GITHUB_PATH"
+      - name: tests/test-board.sh - board values, hardware facts, panel app environment, layouts
+        env:
+          TSX_COMMON: ${{ github.workspace }}/tsx-linux-common
+        run: sh tests/test-board.sh
+      - name: tests/test-kernel-slots.sh - kernel slot writer on a card image file
+        run: sh tests/test-kernel-slots.sh
+      - name: tests/test-update-card.sh - card update on image files (busybox sh)
+        run: sh tests/test-update-card.sh
+      - name: tests/test-update-card.sh - the same with dash
+        env:
+          TEST_SH: dash
+        run: dash tests/test-update-card.sh
+
+  # tests/qemu-image.sh starts a full card image in QEMU. It needs a card
+  # image (a stock card dump) and a QEMU kernel, so CI does not run it. Run
+  # it by hand before a release (docs/build.md, "Tests").
