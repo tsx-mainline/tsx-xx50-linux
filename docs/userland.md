@@ -67,51 +67,8 @@ stays on p2.
 ## Update a card
 
 Use `image/update-card.sh` to put a new card image on a card that already
-runs. The script keeps the data partition. Use it for a new kernel and a new
-root file system. Do not use it for a new card. For a new card, write the full
-image.
-
-```
-image/update-card.sh [--yes] [--dry-run] [--no-data] [--force-id] <new-image> <target>
-```
-
-`<new-image>` is `tsx-xx50-tss752.img` or `tsx-xx50-tss752.img.gz`. If the
-`.sha256` file is next to it, the script checks it. `<target>` is the whole
-card, for example `/dev/sdX` or `/dev/mmcblkN`, or a card image file. Writing
-to a card needs root.
-
-The script writes only these ranges, from the new image to the same offsets:
-
-- the two uInitrd slots (1 MiB each, at 0x100000 and 0x200000)
-- the two uImage slots (4 MiB each, at 0x800000 and 0xC00000)
-- p2 (`tsxroot`)
-
-The script keeps the MBR, the stock U-Boot and its env, p1 (`TSXLOG`) and p3
-(`tsxdata`). So the settings, the layout, the keys and the logs stay.
-
-The script shows the ranges and asks for `yes`. The option `--yes` skips the
-question. The option `--dry-run` does the checks and writes nothing. After
-the write, the script reads each range back and compares its sha256 with the
-new image. A card is good only when the script ends with no error. If the
-script stops in the middle, run it again with the same arguments.
-
-The script refuses to write, and changes nothing, in these cases:
-
-- A partition of the target is mounted or is swap.
-- The p2 of the new image starts at another sector than the p2 of the target.
-- The new p2 is larger than the p2 of the target.
-- The p3 of the target starts before the end of the new p2.
-- The target has no p3. Use `--no-data` to write it anyway.
-- The disk id of the target or of the new image is not `0x7458a050`. Use
-  `--force-id` to write it anyway.
-- The new image or the target has no valid partition table.
-
-If the p2 of the target is larger than the new p2, the new file system is
-smaller than the partition. After the read-back check, the script runs
-`e2fsck -f -y` and `resize2fs` on p2, and the file system fills the partition.
-It does not touch p3. For an image file, the script does this on a copy of p2
-in the temporary directory (`--tmpdir`), and writes the copy back. That needs
-free space of the size of p2.
+runs. The script keeps the data partition. The steps are in
+[update-card.md](update-card.md).
 
 ## Setup page
 

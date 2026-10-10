@@ -147,7 +147,7 @@ same "gz: p2 written" "$TGT" "$T/new.img" $((P2_START * 512)) $((NEW_P2 * 512))
 same "gz: p3 kept" "$TGT" "$T/old.img" $((OLD_P3 * 512)) $((P3SIZE * 512))
 check "gz: the temporary image is removed" test -z "$(ls "$T" | grep '^update-card\.' || true)"
 fresh_target
-cp "$T/nn.img.gz.sha256" "$T/bad.sha256"; sed -i 's/^./0/; s/^00/ff/' "$T/bad.sha256"
+cp "$T/nn.img.gz.sha256" "$T/bad.sha256"; sed -i 's/^./X/' "$T/bad.sha256"
 run $UCARGS --sha256 "$T/bad.sha256" "$T/nn.img.gz" "$TGT"
 [ "$RC" -eq 1 ] && grep -q "does not match" "$T/out" && [ "$(whole "$TGT")" = "$BEFORE" ] && ok "wrong checksum: refused, target unchanged" || bad "wrong checksum (rc=$RC)"
 fresh_target

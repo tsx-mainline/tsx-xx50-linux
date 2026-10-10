@@ -37,6 +37,8 @@ models and their status are in [docs/compatibility.md](docs/compatibility.md).
 - [docs/install.md](docs/install.md): make the card, write it and start the panel.
 - [docs/userland.md](docs/userland.md): the services, the setup page, the
   panel app in Home Assistant, the data partition and the updates.
+- [docs/update-card.md](docs/update-card.md): update a card on a PC and keep
+  its data.
 - [docs/hardware.md](docs/hardware.md): the parts of the TSS-752 and how
   Linux uses them.
 - [docs/build.md](docs/build.md): build from source, the tests, CI and the
