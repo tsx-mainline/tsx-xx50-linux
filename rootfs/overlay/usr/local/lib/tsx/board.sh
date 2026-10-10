@@ -19,7 +19,7 @@
 TSX_FAMILY=${TSX_FAMILY:-xx50}
 TSX_APK_CATEGORY=${TSX_APK_CATEGORY:-xx50}
 TSX_HA_MODEL=${TSX_HA_MODEL:-xx50}
-# The codec (TLV320AIC3204, simple-audio-card). No service uses it yet.
+# The codec (TLV320AIC3204, simple-audio-card). No board service uses it.
 TSX_SOUND_CARD=${TSX_SOUND_CARD-}
 TSX_DISPLAY_DRM=${TSX_DISPLAY_DRM:-imx-drm}
 TSX_RENDER_DRM=${TSX_RENDER_DRM:-msm}

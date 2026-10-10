@@ -9,8 +9,8 @@
 # The facts file is $TSX_RUN_DIR/hw.conf (default /run/tsx/hw.conf), mode
 # 644: root and the kiosk and tsx-setup users read it. The TSS-752 has one
 # model, so the facts are fixed:
-#   MIC=no        the panel has a digital (PDM) microphone, but the codec
-#                 driver has no digital microphone input yet
+#   MIC=no        the panel has a digital (PDM) microphone and the kernel
+#                 captures from it, but the xx50 has no voice service
 #   BT=no         no Bluetooth module
 #   WIFI=no       no Wi-Fi
 #   CAMERA=no     no camera
@@ -39,7 +39,7 @@ facts() {
 	echo "PRESENCE=no"
 	echo "LIGHT=no"
 	echo "LEDBAR=no"
-	echo "REASON=TSS-752: no microphone driver yet, no Bluetooth, no Wi-Fi, no camera, no presence or light sensor, no USB port"
+	echo "REASON=TSS-752: no voice service for the microphone, no Bluetooth, no Wi-Fi, no camera, no presence or light sensor, no USB port"
 }
 
 case "${1:-}" in

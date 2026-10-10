@@ -24,7 +24,7 @@ firmware, put the stock SD card back in the panel.
 | CPU frequency | 167 MHz to 1 GHz, `cpufreq-dt` with the vendor operating points. |
 | GPU | Z430 (Adreno 200) with `drm/msm` and Mesa freedreno, OpenGL ES 2.0. |
 | Audio playback | TLV320AIC3204 codec and the speaker amplifier. The clocks and rates are correct. Nobody has checked the speaker sound. |
-| Audio capture | Does not work. The codec driver has no input for the digital microphone. |
+| Audio capture | The digital microphone, tested at 16 kHz. No voice service uses it. |
 | Panel app | Home Assistant cards, the settings overlay, screen dim and off, the light bars and the keys as Home Assistant entities. |
 | Setup page | Pairing code on the screen, the panel settings, the layout editor. |
 | Updates | `apk upgrade` from the TSX package repository. `image/update-card.sh` for a new image on a card that keeps its data. |

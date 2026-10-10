@@ -27,7 +27,7 @@ kernel), LIKELY, GUESS or TESTED.
 | CPU frequency | `cpufreq-dt`, 167 MHz to 1 GHz | Tested |
 | Light bars | Two TLC59116 at I2C1 0x60 and 0x61, `leds-tlc591xx` | Tested for red and green. Implemented for blue. |
 | Audio playback | TLV320AIC3204 at I2C2 0x18, SSI2, `simple-audio-card` | Implemented: the clocks, the rates and the amplifier enable are correct. Nobody has checked the speaker sound. |
-| Audio capture | Digital (PDM) microphone on the codec | Does not work |
+| Audio capture | Digital (PDM) microphone on the codec, `ti,dmic-data-pin` of `tlv320aic32x4` | Tested at 16 kHz |
 | GPU | Z430 (Adreno 200), `drm/msm` a2xx, render node `renderD128` | Tested |
 | EEPROM | M24M01 at I2C2 0x54, `at24`, read only | Tested |
 | Watchdog | WDOG1, `imx2-wdt`, busybox watchdog with 60 s | Tested |
@@ -168,9 +168,40 @@ level and increase it in small steps. The playback rates 8, 16, 44.1 and
 48 kHz play at the correct speed. Nobody has checked the speaker sound by
 ear.
 
-The microphone is a digital (PDM) microphone on the codec. The
-`tlv320aic32x4` driver has no digital microphone input, so capture gives
-silence. `tsx-hw` reports `MIC=no`.
+### Microphone
+
+The panel has one digital (PDM) microphone on the codec. The kernel has the
+digital microphone input of `tlv320aic32x4` (`ti,dmic-data-pin`).
+
+| Part | Value |
+|---|---|
+| Data | SCLK/MFP3 of the codec. Register 81 is 0xdc during a capture, as in the vendor kernel. |
+| Clock | MISO/MFP4, the ADC modulator clock: 2.048 MHz at 16 kHz, 1.024 MHz at 8 kHz |
+| Supply | MICBIAS from LDOIN (register 0x68 during a capture) |
+| Channels | Left and right give the same samples. Use one channel. |
+| Rate | 16 kHz (tested) or 8 kHz (the vendor rate). At 48 kHz the microphone clock is 6.1 MHz, too fast for most PDM microphones. |
+
+The ADC fine gain of the codec starts muted. Unmute it before a capture:
+
+```sh
+amixer -c 0 cset name='ADCFGA Left Mute Switch' off
+amixer -c 0 cset name='ADCFGA Right Mute Switch' off
+arecord -D hw:0,0 -f S16_LE -c 2 -r 16000 -d 10 /tmp/mic.wav
+```
+
+The capture device is stereo only (I2S). Playback and capture must use the
+same rate. A capture at 16 kHz gives these levels:
+
+| Test | Result |
+|---|---|
+| Room sound, 10 s | -56 dBFS RMS. The 100 ms blocks are from -72 dBFS (the noise floor) to -49 dBFS. |
+| DC offset | about -1830 (16-bit) |
+| 1 kHz tone from the panel speaker, DAC -30 dB, line output 0 dB | 1000.0 Hz at -47 dBFS |
+
+`speaker-test -t sine` at 16 kHz gives a tone about 0.7 % too high (its
+phase step does not divide the period). Use a WAV file with an exact sine
+for frequency tests. `tsx-hw` reports `MIC=no`, because no voice service
+of the xx50 uses the microphone.
 
 Do not unbind the codec driver. An unbind and a new bind of `tlv320aic32x4`
 cause a kernel oops.
@@ -254,7 +285,7 @@ for the tools of tsx-linux-common:
 
 | Key | Value | Reason |
 |---|---|---|
-| `MIC` | `no` | The codec driver has no digital microphone input. |
+| `MIC` | `no` | The microphone works, but no voice service of the xx50 uses it. |
 | `BT`, `WIFI`, `CAMERA` | `no` | The panel does not have these parts. |
 | `PRESENCE` | `no` | The panel has no presence sensor. |
 | `LIGHT` | `no` | The panel has no ambient light sensor. |
