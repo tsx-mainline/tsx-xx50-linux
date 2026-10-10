@@ -1,0 +1,221 @@
+# demo-drm.yaml: a test page for the drawing speed on the TSS-752 (an
+# animated bar, a spinner, a button and the frame counters of tsx_perf.h).
+# The display is tsx_drm (DRM/KMS dumb buffers and page flips). Touch and
+# keys come from tsx_evdev (the input device of the touch controller). Both
+# components are in tsx-linux-common panel-app/esphome/components. build.sh
+# copies that folder to tsx-panel-app/ next to this file. The YAML needs
+# secrets.yaml in its folder (see secrets.yaml.example).
+esphome:
+  name: tsx-tss752-lvgl
+  friendly_name: TSS-752 LVGL
+  # PlatformIO native builds have no optimisation by default.
+  build_flags:
+    - -O2
+  includes:
+    - tsx_perf.h
+  on_boot:
+    priority: -100
+    then:
+      - lambda: |-
+          tsx_perf::install();
+          tsx_perf::anim_bar(id(anim_bar), 1500);
+
+host:
+  mac_address: !secret mac_address
+
+logger:
+  level: DEBUG
+
+api:
+  # The default (15 min) ends the process when no client is connected.
+  reboot_timeout: 0s
+  encryption:
+    key: !secret api_key
+
+time:
+  - platform: host
+    id: host_time
+
+globals:
+  - id: taps
+    type: int
+    initial_value: "0"
+  - id: animate
+    type: bool
+    initial_value: "true"
+
+external_components:
+  - source:
+      type: local
+      path: tsx-panel-app/components
+    components: [tsx_drm, tsx_evdev]
+
+display:
+  - platform: tsx_drm
+    id: panel_display
+
+tsx_evdev:
+  - id: panel_input
+    name: ft5x06
+
+touchscreen:
+  - platform: tsx_evdev
+    id: panel_touch
+
+lvgl:
+  displays: [panel_display]
+  touchscreens: [panel_touch]
+  buffer_size: 100%
+  log_level: WARN
+  pages:
+    - id: main_page
+      bg_color: 0x101418
+      widgets:
+        - label:
+            id: title
+            x: 20
+            y: 14
+            text_color: 0xE0E0E0
+            text_font: montserrat_28
+            text: "TSS-752 LVGL test"
+        - label:
+            id: clock_label
+            align: TOP_RIGHT
+            x: -20
+            y: 18
+            text_color: 0xE0E0E0
+            text_font: montserrat_24
+            text: "--:--:--"
+        - button:
+            id: tap_button
+            x: 20
+            y: 80
+            width: 360
+            height: 160
+            bg_color: 0x2D6CDF
+            on_click:
+              - lambda: id(taps) += 1;
+              - logger.log:
+                  format: "tap %d"
+                  args: [id(taps)]
+              - lvgl.label.update:
+                  id: tap_label
+                  text:
+                    format: "Taps: %d"
+                    args: [id(taps)]
+            widgets:
+              - label:
+                  id: tap_label
+                  align: CENTER
+                  text_font: montserrat_28
+                  text: "Taps: 0"
+        - button:
+            id: anim_button
+            x: 420
+            y: 80
+            width: 360
+            height: 160
+            bg_color: 0x3A3F47
+            on_click:
+              - lambda: |-
+                  id(animate) = !id(animate);
+                  if (id(animate)) {
+                    tsx_perf::anim_bar(id(anim_bar), 1500);
+                    lv_obj_remove_flag(id(spin), LV_OBJ_FLAG_HIDDEN);
+                  } else {
+                    tsx_perf::stop_bar(id(anim_bar));
+                    lv_obj_add_flag(id(spin), LV_OBJ_FLAG_HIDDEN);
+                  }
+              - lvgl.label.update:
+                  id: anim_label
+                  text: !lambda 'return std::string(id(animate) ? "Animation: on" : "Animation: off");'
+            widgets:
+              - label:
+                  id: anim_label
+                  align: CENTER
+                  text_font: montserrat_28
+                  text: "Animation: on"
+        - bar:
+            id: anim_bar
+            x: 20
+            y: 262
+            width: 620
+            height: 40
+            min_value: 0
+            max_value: 100
+            value: 0
+        - spinner:
+            id: spin
+            x: 670
+            y: 252
+            width: 110
+            height: 110
+            spin_time: 1s
+            arc_length: 90deg
+        - label:
+            id: key_label
+            x: 20
+            y: 330
+            text_color: 0xE0E0E0
+            text_font: montserrat_24
+            text: "Keys: none yet"
+        - label:
+            id: perf_label
+            x: 20
+            y: 380
+            text_color: 0x9AA4B0
+            text_font: montserrat_20
+            text: "perf: -"
+
+interval:
+  - interval: 1s
+    then:
+      - lvgl.label.update:
+          id: clock_label
+          text: !lambda 'return id(host_time).now().strftime("%H:%M:%S");'
+  - interval: 5s
+    then:
+      - lambda: |-
+          std::string r = tsx_perf::report();
+          uint32_t frames = 0;
+          uint32_t copy_us = id(panel_display).take_present_stats(&frames);
+          ESP_LOGI("perf", "%s, shown %u, copy avg %.2f ms", r.c_str(), (unsigned) frames,
+                   frames ? copy_us / 1000.0 / frames : 0.0);
+          lv_label_set_text(id(perf_label), ("perf: " + r).c_str());
+
+binary_sensor:
+  - platform: tsx_evdev
+    id: key_f13
+    key: KEY_F13
+    trigger_on_initial_state: true
+    on_press:
+      - logger.log: "key F13"
+      - lvgl.label.update: {id: key_label, text: "Keys: F13 (key 1)"}
+  - platform: tsx_evdev
+    id: key_f14
+    key: KEY_F14
+    trigger_on_initial_state: true
+    on_press:
+      - logger.log: "key F14"
+      - lvgl.label.update: {id: key_label, text: "Keys: F14 (key 2)"}
+  - platform: tsx_evdev
+    id: key_f15
+    key: KEY_F15
+    trigger_on_initial_state: true
+    on_press:
+      - logger.log: "key F15"
+      - lvgl.label.update: {id: key_label, text: "Keys: F15 (key 3)"}
+  - platform: tsx_evdev
+    id: key_f16
+    key: KEY_F16
+    trigger_on_initial_state: true
+    on_press:
+      - logger.log: "key F16"
+      - lvgl.label.update: {id: key_label, text: "Keys: F16 (key 4)"}
+  - platform: tsx_evdev
+    id: key_f17
+    key: KEY_F17
+    trigger_on_initial_state: true
+    on_press:
+      - logger.log: "key F17"
+      - lvgl.label.update: {id: key_label, text: "Keys: F17 (key 5)"}
