@@ -1,4 +1,4 @@
 # The tsx-linux-common tag that CI and a release build the panel app with
 # (panel-app/esphome), the ramdisk splash (splash/) and the rescue system
 # (rescue/) with, and that the tests run against.
-v0.3.4
+v0.3.5
