@@ -10,6 +10,10 @@
 #   - every *.yaml file of esphome-lvgl/ has the keys that build.sh reads
 #   - the relative links of README.md and docs/*.md resolve
 #     (ci/check-doc-links.py)
+#   - every file with a "#!" first line under image/, ci/ and esphome-lvgl/
+#     has the executable mode (100755) in git, because the workflows and the
+#     build scripts run them directly. A file that must stay 100644 goes into
+#     the list NOEXEC below.
 # Needs busybox and python3.
 set -u
 cd "$(dirname "$0")/.."
@@ -24,6 +28,20 @@ for f in $(git ls-files 2>/dev/null || find . -type f -not -path './.git/*'); do
 	esac
 done
 echo "== busybox sh -n: $n scripts"
+
+# Files with a "#!" line that are not run directly (none at present).
+NOEXEC=""
+n=0
+if git rev-parse --git-dir >/dev/null 2>&1; then
+	for f in $(git ls-files -s image ci esphome-lvgl | awk '$1 == "100644" { print $4 }'); do
+		[ -f "$f" ] || continue
+		[ "$(head -c2 "$f" 2>/dev/null)" = '#!' ] || continue
+		case " $NOEXEC " in *" $f "*) continue ;; esac
+		n=$((n + 1))
+		echo "FAIL: $f has a #! line and mode 100644 (git update-index --chmod=+x $f)"; fail=1
+	done
+fi
+echo "== executable mode of scripts under image, ci, esphome-lvgl: $n wrong"
 
 T=$(mktemp -d)
 trap 'rm -rf "$T"' EXIT
