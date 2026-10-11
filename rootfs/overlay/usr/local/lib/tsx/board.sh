@@ -22,6 +22,9 @@ TSX_HA_MODEL=${TSX_HA_MODEL:-xx50}
 # The codec (TLV320AIC3204, simple-audio-card): the ALSA id of the card.
 # /etc/asound.conf and tsx-audio of this board use it. tsx-panelctl and the
 # setup page set the volume (the "Master" softvol) on it, the panel app too.
+# While the Sendspin player runs, the volume of the panel is the player
+# volume, and the service tsx-sendspin sets Master to its fixed level with
+# TSX_VOLUME_FIXED_CMD (MASTER_SENDSPIN of /etc/tsx/audio.conf).
 TSX_SOUND_CARD=${TSX_SOUND_CARD-tss752aic3204}
 TSX_DISPLAY_DRM=${TSX_DISPLAY_DRM:-imx-drm}
 TSX_RENDER_DRM=${TSX_RENDER_DRM:-msm}
@@ -37,6 +40,7 @@ TSX_SERIAL_CONSOLE=${TSX_SERIAL_CONSOLE:-ttymxc0}
 TSX_RENDER_ENV=${TSX_RENDER_ENV-}
 TSX_BROWSER_GL_FLAGS=${TSX_BROWSER_GL_FLAGS-}
 TSX_VOLUME_CMD=${TSX_VOLUME_CMD-}
+TSX_VOLUME_FIXED_CMD=${TSX_VOLUME_FIXED_CMD-tsx-audio fixed}
 TSX_RESCUE_BACKLIGHT=${TSX_RESCUE_BACKLIGHT:-50}
 
 # _tb_env_text: the env area as text lines (NAME=value).

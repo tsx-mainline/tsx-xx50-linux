@@ -9,6 +9,11 @@
 #   tsx-audio store             save the mixer state (STATE)
 #   tsx-audio status            card, levels and the open streams
 #   tsx-audio volume [N|+N|-N]  Master in % (0..100, -50..0 dB). No arg = print
+#   tsx-audio fixed             Master and Media at their fixed levels for the
+#                               Sendspin player (MASTER_SENDSPIN, MEDIA_DEFAULT).
+#                               The service tsx-sendspin runs it at each start
+#                               (TSX_VOLUME_FIXED_CMD of the board file): the
+#                               player volume is then the volume of the panel.
 #
 # Without a card, init and store exit 0, so the boot never fails. Other
 # commands exit 2 without a card.
@@ -20,7 +25,7 @@ APLAY=${APLAY:-aplay}
 
 . "${TSX_BOARD_CONF:-/usr/local/lib/tsx/board.sh}"
 CARD=$TSX_SOUND_CARD CARD_WAIT=15 STATE=/var/lib/tsx/asound.state
-MASTER_DEFAULT=50 MEDIA_DEFAULT=100 CODEC_PCM=115 CODEC_LO_GAIN=6
+MASTER_DEFAULT=50 MEDIA_DEFAULT=100 MASTER_SENDSPIN=100 CODEC_PCM=115 CODEC_LO_GAIN=6
 [ -r "$CONF" ] && . "$CONF"
 
 log() { echo "tsx-audio: $*"; command -v logger >/dev/null && logger -t tsx-audio "$*"; return 0; }
@@ -85,6 +90,14 @@ cmd_volume() {
 	mixer sset Master "$v%" && echo "$v"
 }
 
+# Master and Media at the fixed levels for the Sendspin player. The codec
+# gains stay the cap of the speaker (see asound.conf, "Speaker safety").
+cmd_fixed() {
+	need_card
+	mixer sset Master "${MASTER_SENDSPIN}%" && mixer sset Media "${MEDIA_DEFAULT}%" || exit 1
+	log "fixed: Master ${MASTER_SENDSPIN}%, Media ${MEDIA_DEFAULT}% (the Sendspin player sets the volume)"
+}
+
 cmd_status() {
 	if ! have_card; then echo "card: ${CARD:-(none)} missing"; grep . "$ASOUND/cards" 2>/dev/null; return 2; fi
 	echo "card: $CARD ($(grep -m1 "$CARD" "$ASOUND/cards" | sed 's/^ *//'))"
@@ -105,5 +118,6 @@ store) cmd_store;;
 status) cmd_status;;
 card) echo "$CARD";;
 volume) shift; cmd_volume "$@";;
-*) sed -n '2,13p' "$0"; exit 1;;
+fixed) cmd_fixed;;
+*) sed -n '2,18p' "$0"; exit 1;;
 esac

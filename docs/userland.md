@@ -48,7 +48,14 @@ the panel.
 
 `tsx-audio init` (the service `tsx-audio`, at boot) sets the codec path: the DAC to the line out mixer and the line out driver to the speaker amplifier. It sets the DAC level `PCM` to -6 dB and the line out gain to 0 dB (`CODEC_PCM`, `CODEC_LO_GAIN` of `/etc/tsx/audio.conf`). These two gains are the cap of the speaker. The vendor firmware drives the line out at +20 dB.
 
-The volume of the panel is the softvol `Master` (0 to 100 %, linear in dB from -50 dB to 0 dB, 0 % is silence). The default is 50 %. The setup page (Panel section), the Home Assistant number "Volume" of the panel app, the volume slider of the settings overlay and `tsx-panelctl send volume N` set this one control. `tsx-audio volume [N]` reads or sets it from a shell. `tsx-audio status` shows the levels and the codec gains. The service saves the levels at shutdown in `/var/lib/tsx/asound.state`.
+The panel has one volume. The setup page (Panel section), the Home Assistant number "Volume" of the panel app, the volume slider of the settings overlay and `tsx-panelctl send volume N` set it.
+
+- While the Sendspin player runs (see "Sendspin"), the volume of the panel is the player volume of Music Assistant. A change in Music Assistant shows on the panel, and a change on the panel shows in Music Assistant. The mute is the mute of the player. At each start, the service `tsx-sendspin` runs `tsx-audio fixed`: `Master` goes to `MASTER_SENDSPIN` of `/etc/tsx/audio.conf` (100 %, 0 dB) and stays there. The codec gains below stay the cap of the speaker.
+- Without the player, the volume of the panel is the softvol `Master` (0 to 100 %, linear in dB from -50 dB to 0 dB, 0 % is silence). The default is 50 %. `tsx-audio volume [N]` reads or sets it from a shell. That panel has no mute.
+
+`tsx-audio status` shows the levels and the codec gains. The service saves the levels at shutdown in `/var/lib/tsx/asound.state`.
+
+When the player stops (`SENDSPIN=off`), `Master` is the volume of the panel again. It starts at the fixed level (100 %), the safe maximum of the speaker.
 
 The PCMs of `/etc/asound.conf`:
 

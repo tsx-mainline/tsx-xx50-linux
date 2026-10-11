@@ -121,7 +121,13 @@ done
 [ "$(au volume)" = 50 ] && ok "tsx-audio volume prints Master" || bad "volume: $(au volume)"
 : > "$T/amixer.log"; au volume 130 > /dev/null
 grep -qF "sset Master 100%" "$T/amixer.log" && ok "volume 130 is capped at 100" || bad "cap: $(cat "$T/amixer.log")"
+: > "$T/amixer.log"; au fixed > /dev/null 2>&1
+grep -qF "sset Master 100%" "$T/amixer.log" && grep -qF "sset Media 100%" "$T/amixer.log" && ok "fixed: Master 100 %, Media 100 % (the Sendspin player owns the volume)" || bad "fixed: $(cat "$T/amixer.log")"
+fixed=$(sh -c ". '$OV/usr/local/lib/tsx/board.sh'; echo \$TSX_VOLUME_FIXED_CMD")
+[ "$fixed" = "tsx-audio fixed" ] && ok "board.sh: TSX_VOLUME_FIXED_CMD is 'tsx-audio fixed'" || bad "TSX_VOLUME_FIXED_CMD: $fixed"
 rm -rf "$T/asound/$card"; : > "$T/amixer.log"
+au fixed > /dev/null 2>&1 && bad "fixed with no card exits 0" || ok "fixed with no card fails"
+: > "$T/amixer.log"
 au init > "$T/init2.out" 2>&1 && [ ! -s "$T/amixer.log" ] && ok "no card: init exits 0 and sets nothing" || bad "init with no card"
 
 echo "== least privilege =="
