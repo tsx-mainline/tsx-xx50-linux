@@ -1,0 +1,16 @@
+#!/sbin/openrc-run
+# tsx-audio (xx50): the codec path, the softvol controls and the saved levels
+# at boot (tsx-audio init), the levels at shutdown (tsx-audio store).
+# Config /etc/tsx/audio.conf, PCMs /etc/asound.conf.
+description="TSX xx50 audio: codec path, volume controls and saved levels"
+depend() { after udev tsx-setup modules; before tsx-sendspin tsx-panelctl; }
+start() {
+	ebegin "Audio"
+	/usr/local/bin/tsx-audio init >/dev/null
+	eend 0
+}
+stop() {
+	ebegin "Audio: save the levels"
+	/usr/local/bin/tsx-audio store >/dev/null
+	eend 0
+}

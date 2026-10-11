@@ -10,6 +10,8 @@
 #  - the apk repositories: the image block and tsx-config apply give the
 #    public tsx-aports common and xx50 and Alpine main and community
 #  - tsx-autoupdate: the image runs it, and the xx50 packages need a reboot
+#  - audio: the card of board.sh, asound.conf and tsx-audio with a fake amixer
+#  - least privilege: the image users and services, the LEDs of the panel app
 # It needs sh, python3 and dd. It runs no compiler.
 set -eu
 HERE=$(cd "$(dirname "$0")/.." && pwd)
@@ -93,6 +95,39 @@ for p in tsx-xx50-kernel-lts tsx-xx50-board tsx-xx50-panel-app tsx-panel-app tsx
 	needs "$p" && ok "$p needs a reboot" || bad "$p needs no reboot"
 done
 needs tsx-xx60-kernel-lts && bad "the kernel package of another family needs a reboot" || ok "the kernel package of another family needs no reboot"
+
+echo "== audio =="
+card=$(sh -c ". '$OV/usr/local/lib/tsx/board.sh'; echo \$TSX_SOUND_CARD")
+[ "$card" = tss752aic3204 ] && ok "board.sh names the sound card" || bad "TSX_SOUND_CARD: $card"
+n=$(grep -c "card $card }\|hw:$card,0,0\|card $card\$" "$OV/etc/asound.conf")
+[ "$n" -ge 5 ] && ok "asound.conf uses the card of board.sh ($n places)" || bad "asound.conf names the card $n times"
+for p in media speaker tsx_master_ctl tsx_media_ctl; do grep -q "^pcm\.$p " "$OV/etc/asound.conf" && ok "asound.conf has the PCM $p" || bad "no PCM $p"; done
+grep -q 'ipc_perm 0666' "$OV/etc/asound.conf" && grep -q 'ipc_key_add_uid false' "$OV/etc/asound.conf" && ok "the dmix is shared by all users" || bad "the dmix is not shared"
+mkdir -p "$T/asound/$card" "$T/abin"
+cat > "$T/abin/amixer" <<EOF
+#!/bin/sh
+echo "amixer \$*" >> "$T/amixer.log"
+case "\$*" in *"sget Master"*) echo "  Front Left: Playback 50 [50%] [-25.00dB]";; esac
+EOF
+printf '#!/bin/sh\necho "aplay $*" >> "%s/amixer.log"\n' "$T" > "$T/abin/aplay"
+printf '#!/bin/sh\nexit 1\n' > "$T/abin/alsactl"
+chmod 755 "$T/abin/amixer" "$T/abin/aplay" "$T/abin/alsactl"
+sed 's/^CARD_WAIT=.*/CARD_WAIT=0/' "$OV/etc/tsx/audio.conf" > "$T/audio.conf"
+au() { env PATH="$T/abin:$PATH" TSX_BOARD_CONF="$OV/usr/local/lib/tsx/board.sh" TSX_AUDIO_CONF="$T/audio.conf" TSX_ASOUND_DIR="$T/asound" sh "$OV/usr/local/bin/tsx-audio" "$@"; }
+au init > "$T/init.out" 2>&1
+for want in "aplay -q -D tsx_master_ctl" "sset Master 50%" "sset Media 100%" "sset LOL Output Mixer L_DAC on" "sset LO DAC on" "sset LO Driver Gain 6" "sset PCM 115"; do
+	grep -qF "$want" "$T/amixer.log" && ok "init: $want" || bad "init misses '$want': $(cat "$T/amixer.log")"
+done
+[ "$(au volume)" = 50 ] && ok "tsx-audio volume prints Master" || bad "volume: $(au volume)"
+: > "$T/amixer.log"; au volume 130 > /dev/null
+grep -qF "sset Master 100%" "$T/amixer.log" && ok "volume 130 is capped at 100" || bad "cap: $(cat "$T/amixer.log")"
+rm -rf "$T/asound/$card"; : > "$T/amixer.log"
+au init > "$T/init2.out" 2>&1 && [ ! -s "$T/amixer.log" ] && ok "no card: init exits 0 and sets nothing" || bad "init with no card"
+
+echo "== least privilege =="
+for s in tsx-audio tsx-panelctl; do grep -q "for s in tsx-cpufreq.* $s .*; do" "$HERE/rootfs/mkrootfs.sh" && ok "the image runs $s" || bad "$s not in the default runlevel of the image"; done
+for u in "getent passwd tsx-panel-app" "addgroup -S tsx-setup-screen" "addgroup tsx-panel-app \\\$g"; do grep -qF "$u" "$HERE/rootfs/mkrootfs.sh" && ok "image: $u" || bad "image misses: $u"; done
+grep -q '^PANEL_APP_LEDS="rgb:lightbar-\*"$' "$OV/etc/tsx/panel-app-board.conf" && ok "the panel app may write the two light bars" || bad "PANEL_APP_LEDS"
 
 echo "== $N passed, $F failed"
 [ "$F" = 0 ]

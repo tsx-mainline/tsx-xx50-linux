@@ -23,7 +23,7 @@ firmware, put the stock SD card back in the panel.
 | Light bars | Two RGB light bars (TLC59116), as multicolor LED devices. Blue is not checked by eye. |
 | CPU frequency | 167 MHz to 1 GHz, `cpufreq-dt` with the vendor operating points. |
 | GPU | Z430 (Adreno 200) with `drm/msm` and Mesa freedreno, OpenGL ES 2.0. |
-| Audio playback | TLV320AIC3204 codec and the speaker amplifier. The clocks and rates are correct. Nobody has checked the speaker sound. |
+| Audio playback | TLV320AIC3204 codec and the speaker amplifier, tested by ear. One volume for the setup page, Home Assistant and the settings overlay. The Sendspin player for Music Assistant is an optional package. |
 | Audio capture | The digital microphone, tested at 16 kHz. No voice service uses it. |
 | Panel app | Home Assistant cards, the settings overlay, screen dim and off, the light bars and the keys as Home Assistant entities. |
 | Setup page | Log in with Home Assistant or the pairing code on the screen, the panel settings, live screen and light controls, the layout editor. |

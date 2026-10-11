@@ -26,7 +26,7 @@ kernel), LIKELY, GUESS or TESTED.
 | PMIC | DA9053 at I2C1 0x48, `da9052` (regulators, onkey, hwmon) | Tested |
 | CPU frequency | `cpufreq-dt`, 167 MHz to 1 GHz | Tested |
 | Light bars | Two TLC59116 at I2C1 0x60 and 0x61, `leds-tlc591xx` | Tested for red and green. Implemented for blue. |
-| Audio playback | TLV320AIC3204 at I2C2 0x18, SSI2, `simple-audio-card` | Implemented: the clocks, the rates and the amplifier enable are correct. Nobody has checked the speaker sound. |
+| Audio playback | TLV320AIC3204 at I2C2 0x18, SSI2, `simple-audio-card` | Tested: the clocks, the rates and the amplifier enable are correct, and the speaker sound is clean by ear. |
 | Audio capture | Digital (PDM) microphone on the codec, `ti,dmic-data-pin` of `tlv320aic32x4` | Tested at 16 kHz |
 | GPU | Z430 (Adreno 200), `drm/msm` a2xx, render node `renderD128` | Tested |
 | EEPROM | M24M01 at I2C2 0x54, `at24`, read only | Tested |
@@ -167,20 +167,15 @@ The kernel branch has a fix in `clk-imx5.c` for this clock path: the parent
 list of `ssi_apm` names `lp_apm` correctly. Without it, the kernel cannot
 select the 24 MHz oscillator for MCLK.
 
-The codec starts with the line outputs off. Set the mixer before you play:
+The codec starts with the line outputs off. The board service `tsx-audio`
+sets the path at boot: the DAC to the line out mixers, the line out driver
+on, the line out gain 0 dB and the DAC level -6 dB. The vendor firmware sets
+the line output gain to +20 dB. The volume of the panel is the softvol
+`Master` of `/etc/asound.conf`. See "Audio and volume" in
+[userland.md](userland.md).
 
-```sh
-amixer -c 0 sset 'LOL Output Mixer L_DAC' on
-amixer -c 0 sset 'LOR Output Mixer R_DAC' on
-amixer -c 0 sset 'LO DAC' on
-amixer -c 0 sset 'LO Driver Gain' 6     # 0 dB
-amixer -c 0 sset PCM 67                 # -30 dB
-```
-
-The vendor firmware sets the line output gain to +20 dB. Start with a low
-level and increase it in small steps. The playback rates 8, 16, 44.1 and
-48 kHz play at the correct speed. Nobody has checked the speaker sound by
-ear.
+The playback rates 8, 16, 44.1 and 48 kHz play at the correct speed. A
+tone at a low level is clean by ear.
 
 ### Microphone
 

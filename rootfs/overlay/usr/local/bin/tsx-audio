@@ -1,0 +1,109 @@
+#!/bin/sh
+# tsx-audio: sound card helper of the xx50 (TSS-752: TLV320AIC3204 codec).
+# Config /etc/tsx/audio.conf. PCMs and levels: /etc/asound.conf.
+#
+#   tsx-audio init              card setup at boot: the codec path and gains
+#                               of audio.conf, the softvol controls, the saved
+#                               or default levels
+#   tsx-audio card              print the ALSA card id (TSX_SOUND_CARD of the board file)
+#   tsx-audio store             save the mixer state (STATE)
+#   tsx-audio status            card, levels and the open streams
+#   tsx-audio volume [N|+N|-N]  Master in % (0..100, -50..0 dB). No arg = print
+#
+# Without a card, init and store exit 0, so the boot never fails. Other
+# commands exit 2 without a card.
+CONF=${TSX_AUDIO_CONF:-/etc/tsx/audio.conf}
+ASOUND=${TSX_ASOUND_DIR:-/proc/asound}
+AMIXER=${AMIXER:-amixer}
+ALSACTL=${ALSACTL:-alsactl}
+APLAY=${APLAY:-aplay}
+
+. "${TSX_BOARD_CONF:-/usr/local/lib/tsx/board.sh}"
+CARD=$TSX_SOUND_CARD CARD_WAIT=15 STATE=/var/lib/tsx/asound.state
+MASTER_DEFAULT=50 MEDIA_DEFAULT=100 CODEC_PCM=115 CODEC_LO_GAIN=6
+[ -r "$CONF" ] && . "$CONF"
+
+log() { echo "tsx-audio: $*"; command -v logger >/dev/null && logger -t tsx-audio "$*"; return 0; }
+have_card() { [ -n "$CARD" ] && [ -e "$ASOUND/$CARD" ]; }
+need_card() { have_card || { echo "tsx-audio: no sound card ${CARD:-(none)}" >&2; exit 2; }; }
+mixer() { $AMIXER -q -c "$CARD" "$@" 2>/dev/null; }
+level() { $AMIXER -c "$CARD" sget "$1" 2>/dev/null | sed -n 's/.*\[\([0-9]\{1,3\}\)%\].*/\1/p' | head -n 1; }
+
+# Create the alsa-lib softvol controls without opening the hardware.
+make_softvols() {
+	for p in tsx_master_ctl tsx_media_ctl; do
+		$APLAY -q -D "$p" -t raw -f S16_LE -r 48000 -c 2 /dev/null 2>/dev/null ||
+			log "could not create the softvol of $p"
+	done
+}
+
+# The codec path: DAC -> line out mixer -> line out driver -> amplifier. The
+# driver starts with these off. The gains are the cap of the speaker (see
+# asound.conf, "Speaker safety"), so init sets them after every restore.
+codec_path() {
+	mixer sset 'LOL Output Mixer L_DAC' on || log "no 'LOL Output Mixer L_DAC'"
+	mixer sset 'LOR Output Mixer R_DAC' on || log "no 'LOR Output Mixer R_DAC'"
+	mixer sset 'LO DAC' on || log "no 'LO DAC'"
+	mixer sset 'LO Driver Gain' "$CODEC_LO_GAIN" || log "no 'LO Driver Gain'"
+	mixer sset PCM "$CODEC_PCM" || log "no 'PCM'"
+}
+
+cmd_init() {
+	if [ -z "$CARD" ]; then log "no sound card in the board file, nothing to do"; return 0; fi
+	i=0
+	while ! have_card && [ "$i" -lt "$CARD_WAIT" ]; do sleep 1; i=$((i + 1)); done
+	have_card || { log "no sound card $CARD, nothing to do"; return 0; }
+	make_softvols
+	if [ -s "$STATE" ] && $ALSACTL -f "$STATE" restore "$CARD" 2>/dev/null; then
+		log "restored $STATE"
+	else
+		mixer sset Master "${MASTER_DEFAULT}%"
+		mixer sset Media "${MEDIA_DEFAULT}%"
+		log "defaults: Master ${MASTER_DEFAULT}%, Media ${MEDIA_DEFAULT}%"
+	fi
+	codec_path
+	log "ready: Master $(level Master)%"
+	return 0
+}
+
+cmd_store() {
+	have_card || return 0
+	mkdir -p "$(dirname "$STATE")"
+	$ALSACTL -f "$STATE" store "$CARD" 2>/dev/null && log "stored $STATE"
+	return 0
+}
+
+cmd_volume() {
+	need_card
+	case ${1:-} in
+	'') level Master; return;;
+	+[0-9]*|-[0-9]*) v=$(( $(level Master) ${1%%[0-9]*} ${1#[+-]} ));;
+	[0-9]*) v=$1;;
+	*) echo "usage: tsx-audio volume [N|+N|-N]" >&2; exit 1;;
+	esac
+	[ "$v" -lt 0 ] && v=0; [ "$v" -gt 100 ] && v=100
+	mixer sset Master "$v%" && echo "$v"
+}
+
+cmd_status() {
+	if ! have_card; then echo "card: ${CARD:-(none)} missing"; grep . "$ASOUND/cards" 2>/dev/null; return 2; fi
+	echo "card: $CARD ($(grep -m1 "$CARD" "$ASOUND/cards" | sed 's/^ *//'))"
+	for d in "$ASOUND/$CARD"/pcm*p; do
+		[ -d "$d" ] || continue
+		echo "$(basename "$d"): $(head -n 1 "$d"/sub0/status 2>/dev/null)"
+	done
+	echo "Master: $(level Master)%  Media: $(level Media)%"
+	for c in PCM 'LO Driver Gain' 'LO DAC' 'LOL Output Mixer L_DAC' 'LOR Output Mixer R_DAC'; do
+		echo "  $c: $($AMIXER -c "$CARD" sget "$c" 2>/dev/null | sed -n 's/^  Front Left: //p; s/^  Mono: //p' | head -n 1)"
+	done
+	return 0
+}
+
+case ${1:-} in
+init) cmd_init;;
+store) cmd_store;;
+status) cmd_status;;
+card) echo "$CARD";;
+volume) shift; cmd_volume "$@";;
+*) sed -n '2,13p' "$0"; exit 1;;
+esac

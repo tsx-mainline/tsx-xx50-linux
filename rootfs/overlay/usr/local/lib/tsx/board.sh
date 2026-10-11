@@ -19,8 +19,10 @@
 TSX_FAMILY=${TSX_FAMILY:-xx50}
 TSX_APK_CATEGORY=${TSX_APK_CATEGORY:-xx50}
 TSX_HA_MODEL=${TSX_HA_MODEL:-xx50}
-# The codec (TLV320AIC3204, simple-audio-card). No board service uses it.
-TSX_SOUND_CARD=${TSX_SOUND_CARD-}
+# The codec (TLV320AIC3204, simple-audio-card): the ALSA id of the card.
+# /etc/asound.conf and tsx-audio of this board use it. tsx-panelctl and the
+# setup page set the volume (the "Master" softvol) on it, the panel app too.
+TSX_SOUND_CARD=${TSX_SOUND_CARD-tss752aic3204}
 TSX_DISPLAY_DRM=${TSX_DISPLAY_DRM:-imx-drm}
 TSX_RENDER_DRM=${TSX_RENDER_DRM:-msm}
 TSX_DISPLAY_ENV=${TSX_DISPLAY_ENV-}

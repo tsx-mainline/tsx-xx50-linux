@@ -16,6 +16,7 @@ how to set it up and what an update keeps.
 | tsx-xx50-board | this repo, `rootfs/overlay` | The board layer (see below) |
 | tsx-xx50-panel-app | this repo, `esphome-lvgl/` | The panel app program for the xx50 |
 | tsx-xx50-kernel-lts | the kernel bundle of a release of this repo | The kernel, the ramdisk (the boot splash) and the modules. Optional, see "Kernel package". |
+| tsx-sendspin | tsx-linux-common `sendspin/` | The Sendspin player for Music Assistant. Optional, see "Sendspin". |
 
 The xx50 does not install tsx-kiosk and tsx-ha. Without tsx-kiosk, the setup
 page has no page URL field. Without tsx-ha, the panel has no second ESPHome
@@ -40,6 +41,52 @@ the panel.
 | `/etc/tsx/buttons-board.conf` | The five touch keys (names `power`, `home`, `lights`, `up`, `down`) |
 | `/etc/tsx/panel-app-board.conf` | The environment of the panel app (the display is `tsx_drm` on card0, the touch and keys `tsx_evdev`) and the device file that it waits for |
 | `/etc/tsx/panel-layout.json` | The default layout: a clock. The `power` key opens the settings overlay, the `lights` key turns the light bars on or off |
+| `/etc/asound.conf` | The PCMs of the codec: `default`/`speaker` and `media`, on a dmix that all users share (see "Audio and volume") |
+| `/etc/init.d/tsx-audio`, `/usr/local/bin/tsx-audio`, `/etc/tsx/audio.conf` | At boot: the codec path to the speaker, the softvol controls `Master` and `Media` and the saved levels. At shutdown: saves the levels |
+
+## Audio and volume
+
+`tsx-audio init` (the service `tsx-audio`, at boot) sets the codec path: the DAC to the line out mixer and the line out driver to the speaker amplifier. It sets the DAC level `PCM` to -6 dB and the line out gain to 0 dB (`CODEC_PCM`, `CODEC_LO_GAIN` of `/etc/tsx/audio.conf`). These two gains are the cap of the speaker. The vendor firmware drives the line out at +20 dB.
+
+The volume of the panel is the softvol `Master` (0 to 100 %, linear in dB from -50 dB to 0 dB, 0 % is silence). The default is 50 %. The setup page (Panel section), the Home Assistant number "Volume" of the panel app, the volume slider of the settings overlay and `tsx-panelctl send volume N` set this one control. `tsx-audio volume [N]` reads or sets it from a shell. `tsx-audio status` shows the levels and the codec gains. The service saves the levels at shutdown in `/var/lib/tsx/asound.state`.
+
+The PCMs of `/etc/asound.conf`:
+
+| PCM | Path | Users |
+|---|---|---|
+| `default`, `speaker` | `Master` -> dmix | Sounds of the panel |
+| `media` | `Media` -> `Master` -> dmix | The Sendspin player |
+
+The dmix lets several users play at the same time (`ipc_perm 0666`). `Media` stays at 100 %. A voice feature can turn it down to make the music quieter.
+
+## Sendspin
+
+The package tsx-sendspin plays music from Music Assistant on the speaker. The image does not have it. To add it to a panel:
+
+1. Run `apk add tsx-sendspin`.
+2. Run `tsx-config set SENDSPIN on`.
+3. Run `tsx-config apply`.
+
+The player starts as the user `tsx-sendspin` and tells Music Assistant about itself over mDNS. Home Assistant shows it as a media player with the host name of the panel (or `PANEL_NAME`). `tsx-config set SENDSPIN off` and `tsx-config apply` stop it again. See [sendspin.md of tsx-linux-common](https://github.com/tsx-mainline/tsx-linux-common/blob/main/docs/sendspin.md).
+
+## Users and root
+
+The services of the panel run with the least privilege that they need. [security.md of tsx-linux-common](https://github.com/tsx-mainline/tsx-linux-common/blob/main/docs/security.md) lists the users, the groups and the commands of the root helper `tsx-panelctl`. On the xx50:
+
+| Service | User | Why |
+|---|---|---|
+| `tsx-panel-app` | `tsx-panel-app` | The program draws the screen and talks to Home Assistant. It needs the display, the touch, the keys, the sound, the backlight, the light bars and the CPU frequency limits (groups and sysfs write access, see `PANEL_APP_LEDS` in `/etc/tsx/panel-app-board.conf`). Reboot, the setup window, the screen times in `panel.conf` and the layout install go through `tsx-panelctl`. |
+| `tsx-sendspin` | `tsx-sendspin` | The player needs only the sound and avahi. |
+| `tsx-setupd` | `tsx-setup` | The setup page. `tsx-setup-helper` does its root actions. |
+| `tsx-panelctl`, `tsx-setup-helper` | root | The two root helpers. Each takes only a fixed list of commands. |
+| `tsx-boot-ok` | root | It writes the retry counters of the stock U-Boot env on the card. |
+| `tsx-boot-rescue`, `tsx-kernel-slots` | root (commands for an administrator) | They write the U-Boot env and the raw kernel slots of the card. |
+| `tsx-autoupdate` | root | `apk upgrade` and the reboot after an update. The kernel package writes the kernel slots. |
+| `tsx-touch` | root, once at boot | It writes two registers of the touch controller on its I2C bus. |
+| `tsx-cpufreq` | root, once at boot | It sets the CPU governor. |
+| `tsx-audio` | root, at boot and shutdown | It sets the codec and saves the levels in `/var/lib/tsx`. |
+| `tsx-config`, `tsx-data`, `tsx-hostname`, `tsx-setup` | root, once at boot | `panel.conf`, the run-time files, the host name, the MAC and the mounts. |
+| `watchdog`, `sshd`, `crond`, `syslogd`, `udhcpc`, `getty` | root | The system services of Alpine. `chronyd` runs as `chrony`, `avahi-daemon` as `avahi`. |
 
 ## Card layout
 

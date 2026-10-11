@@ -111,11 +111,16 @@ docker run --rm --platform linux/arm/v7 \
 	echo "-- users and services"
 	chroot $T /bin/sh -e <<CH
 getent passwd tsx-setup >/dev/null || adduser -D -H -s /sbin/nologin -g "on-panel setup page" tsx-setup
+getent group tsx-setup-screen >/dev/null || addgroup -S tsx-setup-screen
+addgroup tsx-setup tsx-setup-screen 2>/dev/null || true
+getent group tsx-panel-app >/dev/null || addgroup -S tsx-panel-app
+getent passwd tsx-panel-app >/dev/null || adduser -S -D -H -h /dev/null -s /sbin/nologin -G tsx-panel-app -g "panel app" tsx-panel-app
+for g in video input audio tsx-setup-screen; do addgroup tsx-panel-app \$g 2>/dev/null || true; done
 for s in devfs dmesg udev udev-trigger udev-settle; do rc-update -q add \$s sysinit; done
 for s in root localmount modules sysctl hostname bootmisc syslog swclock seedrng udev-postmount machine-id tsx-setup tsx-hostname tsx-data tsx-config; do
 	[ -e /etc/init.d/\$s ] && rc-update -q add \$s boot || echo "no service \$s"
 done
-for s in tsx-cpufreq tsx-touch tsx-boot-ok tsx-autoupdate tsx-panel-app tsx-setup-helper tsx-setupd networking chronyd sshd crond watchdog local; do
+for s in tsx-cpufreq tsx-touch tsx-audio tsx-boot-ok tsx-autoupdate tsx-panel-app tsx-panelctl tsx-setup-helper tsx-setupd networking chronyd sshd crond watchdog local; do
 	[ -e /etc/init.d/\$s ] && rc-update -q add \$s default || { echo "MISSING service \$s"; exit 1; }
 done
 for s in mount-ro killprocs savecache; do rc-update -q add \$s shutdown; done
