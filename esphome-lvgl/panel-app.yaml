@@ -174,12 +174,19 @@ binary_sensor:
     on_state:
       - lambda: id(panel_cards).key_state("down", x);
 
-# Test aid: `touch /run/tsx/panel-app.snapshot` saves the screen as a BMP
-# file in $ESPHOME_SNAPSHOT_DIR (the board file panel-app-board.conf sets
-# /tmp/panel-app-snapshots).
+# Test aid: root touches the file "snapshot" in the folder of the app
+# ($TSX_PANEL_APP_OUT_DIR, /run/tsx/panel-app/app for a program that does
+# not run as root, else /run/tsx/panel-app.snapshot). The app removes it
+# and saves the screen as a BMP file in $ESPHOME_SNAPSHOT_DIR (the board
+# file panel-app-board.conf sets /tmp/panel-app-snapshots).
 interval:
   - interval: 2s
     then:
       - lambda: |-
-          if (std::remove("/run/tsx/panel-app.snapshot") == 0)
+          static const std::string trigger = [] {
+            const char *d = getenv("TSX_PANEL_APP_OUT_DIR");
+            return d != nullptr && d[0] != '\0' ? std::string(d) + "/snapshot"
+                                                  : std::string("/run/tsx/panel-app.snapshot");
+          }();
+          if (std::remove(trigger.c_str()) == 0)
             id(panel_display).take_snapshot(nullptr);
