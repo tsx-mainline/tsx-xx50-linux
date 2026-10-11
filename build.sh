@@ -9,9 +9,10 @@
 #                    MiB is enough). It gives the stock U-Boot and its env.
 # out-dir            default ./out
 # Needs docker. A host that is not armv7 or arm64 needs qemu-user binfmt
-# support for the armv7 rootfs step. Steps: kernel, rootfs, ramdisk, card
-# image, offline checks. AUTHORIZED_KEYS and TSX_APK_LOCAL: see
-# rootfs/mkrootfs.sh. TSX_COMMON: see image/mkinitrd.sh (the boot splash).
+# support for the armv7 rootfs step. Steps: kernel, rootfs, ramdisk, rescue
+# system, card image, offline checks. AUTHORIZED_KEYS and TSX_APK_LOCAL: see
+# rootfs/mkrootfs.sh. TSX_COMMON: see image/mkinitrd.sh (the boot splash)
+# and image/mkrescue.sh (the rescue system).
 # Output:
 # <out-dir>/tsx-xx50-tss752.img.gz and its .sha256.
 set -eu
@@ -22,5 +23,6 @@ mkdir -p "$OUT"
 "$HERE/kernel/build-kernel.sh" "$KSRC" "$OUT/kernel"
 "$HERE/rootfs/mkrootfs.sh" "$OUT/kernel" "$OUT/work"
 "$HERE/image/mkinitrd.sh" "$OUT/kernel" "$OUT/work"
+"$HERE/image/mkrescue.sh" "$OUT/work"
 "$HERE/image/mkcard.sh" "$STOCK" "$OUT/kernel" "$OUT/work" "$OUT"
 python3 "$HERE/image/check-card.py" "$OUT/tsx-xx50-tss752.img" "$STOCK"

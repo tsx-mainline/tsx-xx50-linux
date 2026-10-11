@@ -8,8 +8,9 @@
 #                    its env from it, byte for byte. No Crestron file is part
 #                    of this repository.
 # <kernel-out-dir>   output of kernel/build-kernel.sh (uImage)
-# <work-dir>         holds uInitrd (image/mkinitrd.sh), rootfs.ext4 and
-#                    data.ext4 (rootfs/mkrootfs.sh)
+# <work-dir>         holds uInitrd (image/mkinitrd.sh), tsx-xx50-rescue.img
+#                    (image/mkrescue.sh), rootfs.ext4 and data.ext4
+#                    (rootfs/mkrootfs.sh)
 # Output: <out-dir>/$NAME.img.gz and $NAME.img.gz.sha256 (and the raw .img)
 #
 # Card layout (bytes, sectors of 512 bytes):
@@ -18,6 +19,7 @@
 #   0x0C0000  stock U-Boot env, 128 KiB               (copied from the dump)
 #   0x100000  uInitrd, normal slot  (U-Boot reads sector 0x0800, 0x300 sectors)
 #   0x200000  uInitrd, golden slot  (U-Boot reads sector 0x1000, 0x300 sectors)
+#   0x300000  the rescue slot, 5 MiB  (the ramdisk unpacks the rescue system)
 #   0x800000  uImage, normal slot   (U-Boot reads sector 0x4000, 0x2000 sectors)
 #   0xC00000  uImage, golden slot   (U-Boot reads sector 0x6000, 0x2000 sectors)
 #   16 MiB    p1 FAT16 "TSXLOG", 64 MiB (logs, readable on any PC)
@@ -25,7 +27,8 @@
 #   after p2  p3 ext4 "tsxdata" (/data: the settings, the layout, the logs)
 # The stock U-Boot switches between the normal and the golden slots from its
 # retry counters. Both slots hold the same files, so both paths boot this
-# kernel.
+# kernel. After a boot of the golden slots, the ramdisk starts the rescue
+# system of the rescue slot (docs/recovery.md).
 set -eu
 [ $# -eq 4 ] || { awk 'NR > 1 && !/^#/ {exit} NR > 1 {print}' "$0"; exit 2; }
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -36,7 +39,7 @@ OUT=$(mkdir -p "$4" && cd "$4" && pwd)
 NAME=${NAME:-tsx-xx50-tss752}
 LOG_MB=64
 IMAGE=${IMAGE:-tsx-xx50-build}
-for f in "$KOUT/uImage" "$WORK/uInitrd" "$WORK/rootfs.ext4" "$WORK/data.ext4"; do
+for f in "$KOUT/uImage" "$WORK/uInitrd" "$WORK/tsx-xx50-rescue.img" "$WORK/rootfs.ext4" "$WORK/data.ext4"; do
 	[ -s "$f" ] || { echo "ERROR: $f is missing" >&2; exit 1; }
 done
 ROOT_BYTES=$(stat -c %s "$WORK/rootfs.ext4")
@@ -67,6 +70,8 @@ docker run --rm -v "$WORK:/w" -v "$KOUT:/k:ro" -v "$OUT:/out" -e NAME="$NAME" \
 	dd if=/w/stock-uboot-env.bin of=$I bs=1024 seek=1 conv=notrunc status=none
 	for off in 1048576 2097152; do dd if=/w/uInitrd of=$I bs=4096 seek=$((off / 4096)) conv=notrunc status=none; done
 	for off in 8388608 12582912; do dd if=/k/uImage of=$I bs=4096 seek=$((off / 4096)) conv=notrunc status=none; done
+	[ "$(wc -c < /w/tsx-xx50-rescue.img)" -le 5242880 ] || { echo "ERROR: the rescue system is larger than 5 MiB" >&2; exit 1; }
+	dd if=/w/tsx-xx50-rescue.img of=$I bs=4096 seek=$((0x300000 / 4096)) conv=notrunc status=none
 	rm -f /tmp/log.vfat
 	mkfs.vfat -n TSXLOG -i 7458a051 -C /tmp/log.vfat $((P1_SECTORS / 2)) >/dev/null
 	sed "s/\$/\r/" /w/TSXLOG-README.txt > /tmp/README.TXT

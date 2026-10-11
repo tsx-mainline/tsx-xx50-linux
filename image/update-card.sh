@@ -25,6 +25,8 @@
 # the target, and nothing else:
 #   0x100000  uInitrd, normal slot, 1 MiB
 #   0x800000  uImage, normal slot, 4 MiB
+#   0x300000  the rescue slot, 5 MiB (the rescue system; only when the new
+#             image has one)
 #   p2        tsxroot, the root file system (start and size of the new image)
 #   0x200000  uInitrd, golden slot, 1 MiB   (only with --all-slots)
 #   0xC00000  uImage, golden slot, 4 MiB    (only with --all-slots)
@@ -338,6 +340,13 @@ fi
 RANGES="initrd-normal:$((0x100000)):$MIB
 uImage-normal:$((0x800000)):$((4 * MIB))
 p2-tsxroot:$P2_OFF:$P2_LEN"
+# The rescue slot: only from an image that has a rescue system.
+if [ "$(dd if="$SRC" bs=512 skip=$((0x300000 / 512)) count=1 2>/dev/null | head -c 12)" = "TSX-RESCUE 1" ]; then
+	RANGES="rescue:$((0x300000)):$((5 * MIB))
+$RANGES"
+else
+	echo "== WARNING: the new image has no rescue system: the rescue slot of the target stays as it is" >&2
+fi
 [ "$ALLSLOTS" -eq 0 ] || RANGES="$RANGES
 initrd-golden:$((0x200000)):$MIB
 uImage-golden:$((0xC00000)):$((4 * MIB))"

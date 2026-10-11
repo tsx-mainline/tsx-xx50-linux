@@ -32,6 +32,8 @@ mkenv "$T/golden.img" good bootdelay=3 "bootcmd_SD2=mmc read 0 \${loadaddr} 0x60
 mkenv "$T/badcrc.img" bad bootdelay=3 "bootcmd_SD2=x" rd_loadaddr=0x70D00000 boot_retry=9 golden_boot_retry=0 golden=0
 mkenv "$T/foreign.img" good bootdelay=3 bootcmd=boot boot_retry=9 golden=0
 cp "$T/normal.img" "$T/dry.img"
+cp "$T/normal.img" "$T/fallback.img"
+cp "$T/golden.img" "$T/reset.img"
 for f in "$T"/*.img; do sha256sum "$f" | cut -d' ' -f1 > "$f.before"; done
 
 cat > "$T/run.sh" <<'EOF'
@@ -67,6 +69,22 @@ out=$(bo dry.img --dry-run)
 echo "$out" | grep -q "would set: boot_retry=8" && same dry.img && ok "dry run: nothing written" || bad "dry run: $out"
 out=$(bo dry.img --status)
 echo "$out" | grep -q "boot_retry=9 golden_boot_retry=0 golden=0" && ok "status" || bad "status: $out"
+# The rescue system: --reset after a golden boot, --fallback from the normal system.
+out=$(SLOTS=abc123 bo reset.img --reset)
+echo "$out" | grep -q "env written and checked: boot_retry=8,golden_boot_retry=0" && ok "--reset after a golden boot: boot_retry=8, golden_boot_retry=0" || bad "--reset: $out"
+e=$(penv reset.img)
+echo "$e" | grep -qx boot_retry=8 && echo "$e" | grep -qx golden_boot_retry=0 && echo "$e" | grep -qx golden=1 && ok "--reset: values, golden left to U-Boot" || bad "--reset values: $e"
+[ ! -e /t/run/tsx/boot-ok ] && ok "--reset: no good-boot mark" || bad "--reset: marked good"
+out=$(bo fallback.img --fallback)
+echo "$out" | grep -q "env written and checked: boot_retry=10" && ok "--fallback: boot_retry=10 (the next start boots the golden slots)" || bad "--fallback: $out"
+e=$(penv fallback.img)
+echo "$e" | grep -qx boot_retry=10 && echo "$e" | grep -qx golden_boot_retry=0 && echo "$e" | grep -qx bootdelay=3 && ok "--fallback: values, other variables kept" || bad "--fallback values: $e"
+out=$(bo fallback.img --fallback)
+echo "$out" | grep -q "env already good" && ok "--fallback twice: nothing written" || bad "--fallback twice: $out"
+out=$(bo badcrc.img --reset); rc=$?
+[ $rc -ne 0 ] && same badcrc.img && ok "--reset with a bad CRC: refused" || bad "--reset bad CRC ($rc): $out"
+out=$(bo dry.img --bogus); rc=$?
+[ $rc -eq 2 ] && same dry.img && ok "unknown option: exit 2" || bad "unknown option ($rc): $out"
 echo "== $N passed, $F failed"
 chmod -R a+rwX /t
 [ $F -eq 0 ]

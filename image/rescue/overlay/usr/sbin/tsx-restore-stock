@@ -1,0 +1,148 @@
+#!/bin/sh
+# tsx-restore-stock: from the rescue system, write a dump of the stock card
+# onto this card, so the panel starts the stock firmware again.
+#
+#   tsx-restore-stock [--yes] SOURCE
+#
+# The best way back to the stock firmware is the stock card itself: the
+# install of TSX - LINUX (docs/install.md) leaves it as it is. Power off the
+# panel, put the stock card back and power on. Use this tool only when the
+# stock card is lost or damaged and a dump of it exists (the dump that
+# image/mkcard.sh needs, made before the install).
+#
+# SOURCE: FILE or http(s)://URL of the dump (NAME.img or NAME.img.gz), or
+# "-" (stdin, a raw dump; "- gz" for a gzip dump). Example from a PC:
+#   ssh root@<rescue-ip> tsx-restore-stock --yes - < stock-card.img
+#
+# What it writes: the dump from byte 0 to its end, except the stock U-Boot
+# and its env (0x400 to 0xE0000). That range stays as it is on this card:
+# the tool never writes U-Boot. Then it sets boot_retry=0 and
+# golden_boot_retry=0 in the env (tsx-boot-ok --stock). Everything on the
+# card that the dump covers is lost: TSX - LINUX, the data partition, the
+# rescue slot, TSXLOG. Bytes after the end of the dump do not change.
+#
+# Checks before the write (a refusal writes nothing):
+#   - the dump has an MBR, and it is not a TSX - LINUX card (disk id
+#     0x7458a050),
+#   - the U-Boot range 0x400 to 0xC0000 of the dump is the same as on this
+#     card (the same stock U-Boot: mkcard.sh copied it from this dump),
+#   - the partitions of the dump end inside this card.
+# After the write it compares the sha256 of the written bytes with the
+# sha256 of the stream. Do not power off during the write. A failed write
+# leaves a card that only a PC can repair (write the dump with a card
+# reader).
+#
+# Env: TSX_CARD_DEV (default /dev/mmcblk0), TSX_BOOT_OK (tsx-boot-ok).
+set -eu
+PATH=/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/sbin
+DEV=${TSX_CARD_DEV:-/dev/mmcblk0}
+BOOTOK=${TSX_BOOT_OK:-/usr/local/sbin/tsx-boot-ok}
+RUN=${TSX_RUN:-/run}
+MIB=1048576
+HEAD=$((0xE0000))
+say() { echo "tsx-restore-stock: $*" >&2; }
+die() { say "ERROR: $*"; exit 1; }
+
+YES=0
+while [ $# -gt 0 ]; do
+	case $1 in
+	--yes|-y) YES=1;;
+	-h|--help|'') sed -n '2,36p' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
+	-) break;;
+	-*) die "unknown option $1 (see --help)";;
+	*) break;;
+	esac
+	shift
+done
+[ $# -ge 1 ] || die "give the dump (see --help)"
+SRC=$1 GZ=0
+case $SRC in
+-) [ "${2:-}" = gz ] && GZ=1;;
+*.gz) GZ=1;;
+esac
+case $SRC in http://*|https://*|-) ;; *) [ -r "$SRC" ] || die "cannot read $SRC";; esac
+[ -e "$DEV" ] || die "no card $DEV"
+grep -q "^$DEV" /proc/mounts 2>/dev/null && die "a partition of $DEV is mounted. Unmount it first."
+
+fetch() {
+	case $SRC in
+	http://*|https://*) wget -q -O - "$SRC";;
+	-) cat <&7;;
+	*) cat "$SRC";;
+	esac
+}
+unpack() { if [ "$GZ" = 1 ]; then gzip -dc; else cat; fi; }
+u32le() { set -- $(dd if="$1" bs=1 skip="$2" count=4 2>/dev/null | od -An -v -tu1); echo $(($1 + $2 * 256 + $3 * 65536 + $4 * 16777216)); }
+sum_range() { dd if="$1" bs=512 skip=$(($2 / 512)) count=$(($3 / 512)) 2>/dev/null | sha256sum | cut -d' ' -f1; }
+bytes() { if [ -b "$1" ]; then blockdev --getsize64 "$1"; else wc -c < "$1" | tr -d ' '; fi; }
+
+exec 7<&0
+FIFO=$RUN/tsx-restore-stock.fifo
+rm -f "$FIFO"; mkfifo "$FIFO"
+trap 'rm -f "$FIFO" "$RUN/tsx-restore-stock.head" "$RUN/tsx-restore-stock.sum" "$RUN/tsx-restore-stock.sumfifo" "$RUN/tsx-restore-stock.dd"' EXIT
+# The stream: the first 0xE0000 bytes go to a file for the checks, the rest
+# waits in the pipe until the checks pass.
+fetch | unpack > "$FIFO" &
+FPID=$!
+exec 8< "$FIFO"
+dd bs=4096 count=$((HEAD / 4096)) iflag=fullblock of="$RUN/tsx-restore-stock.head" <&8 2>/dev/null ||
+	die "cannot read the start of the dump"
+H=$RUN/tsx-restore-stock.head
+[ "$(wc -c < "$H")" -eq "$HEAD" ] || die "the dump is shorter than 896 KiB"
+[ "$(dd if="$H" bs=1 skip=510 count=2 2>/dev/null | od -An -tx1 | tr -d ' ')" = 55aa ] || die "the dump has no MBR (is it a card dump?)"
+[ "$(u32le "$H" 440)" -ne $((0x7458a050)) ] || die "the dump is a TSX - LINUX card, not the stock card"
+[ "$(sum_range "$H" 1024 $((0xC0000 - 1024)))" = "$(sum_range "$DEV" 1024 $((0xC0000 - 1024)))" ] ||
+	die "the U-Boot of the dump differs from the U-Boot of this card. This tool never writes U-Boot: write the dump on a PC."
+END=0
+for n in 0 1 2 3; do
+	s=$(u32le "$H" $((446 + n * 16 + 8))) z=$(u32le "$H" $((446 + n * 16 + 12)))
+	[ "$z" -eq 0 ] || [ $(((s + z) * 512)) -le "$END" ] || END=$(((s + z) * 512))
+done
+CARD=$(bytes "$DEV")
+[ "$END" -gt 0 ] || die "the dump has no partitions"
+[ "$END" -le "$CARD" ] || die "the partitions of the dump end at $((END / MIB)) MiB, the card has $((CARD / MIB)) MiB"
+
+say "preflight:"
+say "  dump    : $SRC (partitions end at $((END / MIB)) MiB)"
+say "  card    : $DEV, $((CARD / MIB)) MiB"
+say "  kept    : the stock U-Boot and its env (0x400 to 0xE0000)"
+say "  LOST    : TSX - LINUX, its data, the rescue system and TSXLOG"
+if [ "$YES" = 0 ]; then
+	[ -t 0 ] || die "no terminal for the question: use --yes"
+	printf 'Write the stock card dump onto %s? Type yes: ' "$DEV" >&2
+	read -r ans </dev/tty || ans=
+	[ "$ans" = yes ] || { kill "$FPID" 2>/dev/null; die "not confirmed. Nothing was written."; }
+fi
+
+say "write the rest of the dump (the progress line shows every 5 s)"
+T0=$(date +%s)
+NAME=$(basename "$(readlink -f "$DEV")")
+written() { awk '{print $7 * 512}' "/sys/class/block/$NAME/stat" 2>/dev/null || echo 0; }
+W0=$(written)
+SFIFO=$RUN/tsx-restore-stock.sumfifo
+rm -f "$SFIFO"; mkfifo "$SFIFO"
+sha256sum < "$SFIFO" > "$RUN/tsx-restore-stock.sum" &
+SPID=$!
+( tee "$SFIFO" <&8 | dd of="$DEV" bs=65536 seek=$((HEAD / 65536)) conv=notrunc,fsync 2> "$RUN/tsx-restore-stock.dd" ) &
+WPID=$!
+while kill -0 "$WPID" 2>/dev/null; do
+	sleep 5
+	printf 'tsx-restore-stock:   %5d MiB written, %d s\n' $((($(written) - W0) / MIB)) $(($(date +%s) - T0)) >&2
+done
+rc=0; wait "$WPID" || rc=$?
+wait "$SPID" || true
+rm -f "$SFIFO"
+[ "$rc" = 0 ] || die "the write failed (exit $rc): $(tail -n 2 "$RUN/tsx-restore-stock.dd" | tr '\n' ' '). The card is NOT usable: write the dump on a PC."
+N=$(sed -n 's/^\([0-9][0-9]*\) bytes.*/\1/p' "$RUN/tsx-restore-stock.dd" | tail -n 1)
+case $N in ''|*[!0-9]*) die "cannot read the byte count of dd: $(cat "$RUN/tsx-restore-stock.dd")";; esac
+WANT=$(cut -d' ' -f1 "$RUN/tsx-restore-stock.sum")
+# The MBR and the gap before U-Boot last: until here the card kept its own.
+dd if="$H" of="$DEV" bs=1024 count=1 conv=notrunc,fsync 2>/dev/null || die "the write of the MBR failed. Write the dump on a PC."
+sync
+echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || true
+say "read back $((N / MIB)) MiB"
+GOT=$(dd if="$DEV" bs=65536 skip=$((HEAD / 65536)) 2>/dev/null | head -c "$N" | sha256sum | cut -d' ' -f1)
+[ "$GOT" = "$WANT" ] || die "the read-back check failed. The card is NOT good: write the dump on a PC."
+[ "$(sum_range "$DEV" 0 1024)" = "$(sum_range "$H" 0 1024)" ] || die "the read-back check of the MBR failed"
+"$BOOTOK" --stock >&2 || say "WARNING: the U-Boot counters are not reset (tsx-boot-ok --stock failed)"
+say "done in $(($(date +%s) - T0)) s. Power the panel off and on: the stock firmware starts."

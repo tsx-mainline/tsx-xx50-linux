@@ -1,0 +1,8 @@
+# /etc/inittab of the xx50 rescue system (busybox init).
+::sysinit:/etc/init.d/rcS
+# The LCD shows the rescue screen of tsx-linux-common.
+tty1::respawn:/usr/sbin/tsx-rescue-status loop
+# The serial console (UART1, test points on the board).
+ttymxc0::respawn:/sbin/getty -n -l /bin/sh -L 115200 ttymxc0 vt100
+::ctrlaltdel:/sbin/reboot
+::shutdown:/bin/umount -a -r

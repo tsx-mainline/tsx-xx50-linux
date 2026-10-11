@@ -64,10 +64,18 @@ Text console in place of the splash: set `BOOT_VERBOSE=1` in `panel.conf`
 gives the screen to the text console from the root mount on. The console
 shows the kernel log and the OpenRC messages until the panel app starts.
 
-If the root partition does not show up in 60 s, or `/sbin/init` is missing,
-`/init` shows the text console with the reason and stops. The kernel then
-restarts the panel after 10 s, as it does without a ramdisk. After two
-failed boots, U-Boot boots the golden slots (see README.md, "Boot path").
+If the root partition does not show up in 60 s, does not mount, or has no
+`/sbin/init`, `/init` starts the rescue system of the rescue slot. Without a
+rescue system, it shows the text console with the reason and stops. The
+kernel then restarts the panel after 10 s, as it does without a ramdisk.
+After two failed boots, U-Boot boots the golden slots, and `/init` starts the
+rescue system (see [recovery.md](recovery.md)).
+
+`/init` also starts the rescue system on a `RESCUE` file on TSXLOG,
+`/etc/tsx/force-rescue` (`tsx-boot-rescue`) and a finger that stays on the
+screen for 3 s at the splash. It reads the touch state once at the splash
+(`EVIOCGKEY`, `BTN_TOUCH`), so the check costs no time without a finger.
+The program links zlib for the rescue archive. The ramdisk is about 105 KB.
 
 ## Touch
 

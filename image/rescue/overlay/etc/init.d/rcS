@@ -1,0 +1,62 @@
+#!/bin/sh
+# rcS of the xx50 rescue system. tsx-xx50-init unpacked the rescue system
+# into RAM (a tmpfs) and started busybox init. The rescue never writes the
+# card by itself.
+# It starts the network with the MAC of the U-Boot env (board.sh), DHCP or a
+# static address, chooses the login (tsx-rescue-login) and starts dropbear.
+# A static address: a line tsx.ip=A.B.C.D/NN[,GW] in the RESCUE file on the
+# TSXLOG partition (/run/tsx-rescue-args) or on the kernel command line.
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/sbin
+log() { echo "tsx-rescue: $*" > /dev/kmsg 2>/dev/null; }
+mkdir -p /dev/pts /run /tmp
+mount -t devpts devpts /dev/pts 2>/dev/null
+chmod 1777 /tmp
+hostname tsx-rescue
+ip link set lo up
+# The rescue has no tsx-idled. Set the backlight to a moderate level.
+/usr/sbin/tsx-rescue-backlight > /dev/kmsg 2>&1 &
+log "why: $(cat /run/rescue-reason 2>/dev/null)"
+
+STATIC=
+# A PC editor can end the lines of the RESCUE file with CR LF.
+for c in $(cat /proc/cmdline /run/tsx-rescue-args 2>/dev/null | tr -d "\r"); do
+	case $c in tsx.ip=*) STATIC=${c#tsx.ip=};; esac
+done
+
+. /usr/local/lib/tsx/board.sh
+(
+	n=0
+	while [ ! -e /sys/class/net/eth0 ] && [ $n -lt 30 ]; do sleep 1; n=$((n + 1)); done
+	macsrc=random
+	mac=$(tsx_board_mac_early)
+	if [ -n "$mac" ]; then
+		ip link set eth0 down 2>/dev/null
+		if ip link set dev eth0 address "$mac" 2>/dev/null; then macsrc=$(tsx_board_mac_source); else mac=; fi
+	fi
+	[ -n "$mac" ] || mac=$(cat /sys/class/net/eth0/address 2>/dev/null)
+	echo "$macsrc" > /run/tsx-eth0-mac-src
+	log "eth0 MAC $mac ($macsrc)"
+	ip link set eth0 up
+	if [ -n "$STATIC" ]; then
+		ip addr add "${STATIC%%,*}" dev eth0
+		case $STATIC in *,*) ip route add default via "${STATIC#*,}";; esac
+	else
+		udhcpc -b -i eth0 -x hostname:tsx-rescue -s /usr/share/udhcpc/default.script -t 20 >/dev/null 2>&1
+	fi
+	n=0
+	while [ $n -lt 60 ]; do
+		a=$(ip -4 -o addr show eth0 2>/dev/null | awk '{print $4}')
+		[ -n "$a" ] && { log "eth0 $a"; break; }
+		sleep 1; n=$((n + 1))
+	done
+) &
+
+# The rescue has no fixed password. tsx-rescue-login uses the root hash and
+# the SSH key of the panel (panel.conf) and the root keys of the normal
+# system, or makes a one-time password that only the rescue screen shows. Dropbear starts after it. The log line never has the password.
+# The card is there already (the ramdisk read it), so a short wait for
+# tsxdata is enough.
+TSX_RESCUE_WAIT=3 /usr/sbin/tsx-rescue-login
+log "rescue login: $(cat /run/tsx-rescue-login 2>/dev/null || echo failed)"
+dropbear -R -E -p 22 2> /dev/kmsg
+log "dropbear started"

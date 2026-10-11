@@ -27,6 +27,7 @@ firmware, put the stock SD card back in the panel.
 | Audio capture | The digital microphone, tested at 16 kHz. No voice service uses it. |
 | Panel app | Home Assistant cards, the settings overlay, screen dim and off, the light bars and the keys as Home Assistant entities. |
 | Setup page | Pairing code on the screen, the panel settings, the layout editor. |
+| Rescue system | Starts after two failed boots, from `tsx-boot-rescue`, from a `RESCUE` file on TSXLOG or with a finger on the screen at boot. ssh login, repair tools, backup of the panel data. See [docs/recovery.md](docs/recovery.md). |
 | Updates | Automatic package updates from the TSX package repository (`tsx-autoupdate`, 03:00 to 05:00, only with the screen off). `image/update-card.sh` for a new image on a card that keeps its data. |
 
 The hardware details are in [docs/hardware.md](docs/hardware.md). The
@@ -39,6 +40,8 @@ models and their status are in [docs/compatibility.md](docs/compatibility.md).
   panel app in Home Assistant, the data partition and the updates.
 - [docs/update-card.md](docs/update-card.md): update a card on a PC and keep
   its data.
+- [docs/recovery.md](docs/recovery.md): the rescue system, the repair tools
+  and the way back to the stock firmware.
 - [docs/hardware.md](docs/hardware.md): the parts of the TSS-752 and how
   Linux uses them.
 - [docs/build.md](docs/build.md): build from source, the tests, CI and the
@@ -51,8 +54,9 @@ A card image has two parts:
 
 - The stock U-Boot and its env. They come from the stock SD card of your
   panel. This repository and its releases do not hold them.
-- The kernel, the ramdisk (the boot splash) and the root file system. The release
-  assets hold them (`tsx-xx50-card-parts.tar.zst`), or you build them.
+- The kernel, the ramdisk (the boot splash), the rescue system and the root
+  file system. The release assets hold them (`tsx-xx50-card-parts.tar.zst`),
+  or you build them.
 
 `image/mkcard.sh` puts the two parts together on your machine. See
 [docs/install.md](docs/install.md).
@@ -82,13 +86,18 @@ golden path 5 times and the normal path 2 times, again and again.
 
 The board service `tsx-boot-ok` sets `boot_retry=8` and `golden_boot_retry=0`
 after a good boot from the normal path. So the next start boots the normal
-path. If the normal path fails two times, U-Boot boots the golden path.
+path. If the normal path fails two times, U-Boot boots the golden path. The
+ramdisk reads `golden=1` in the env and starts the rescue system of the
+rescue slot (0x300000), not the root file system. So a failed boot ends in
+the rescue system, as on the other TSX panels. `tsx-boot-mainline` in the
+rescue system sets the counters back. See [docs/recovery.md](docs/recovery.md).
 
 A new card has the same files in the normal and the golden slots. A kernel
 update (`tsx-kernel-slots write`, the package tsx-xx50-kernel-lts or
 `image/update-card.sh`) writes only the normal slots. So the golden slots
-keep the last kernel that is known to boot. After good boots of the new
-kernel, `tsx-kernel-slots promote` copies it to the golden slots.
+keep the last kernel that is known to boot, and the rescue system starts
+with it. After good boots of the new kernel, `tsx-kernel-slots promote`
+copies it to the golden slots.
 
 The U-Boot has no FDT support and no `bootz`. The kernel is a zImage with the
 board DTB appended (`CONFIG_ARM_APPENDED_DTB`), packed as a legacy uImage with
@@ -112,7 +121,8 @@ itself over the ramdisk.
 
 The ramdisk shows the boot splash (`image/mkinitrd.sh`). Its `/init` draws the
 splash of tsx-linux-common on the framebuffer, mounts the root partition and
-starts `/sbin/init` there. The kernel keeps its text console off the LCD
+starts `/sbin/init` there. On a rescue trigger, it unpacks the rescue system
+of the rescue slot into RAM and starts it instead. The kernel keeps its text console off the LCD
 (`fbcon=map:1`), so the splash stays on the screen until the panel app takes
 the display. See [docs/hardware.md](docs/hardware.md), "Boot splash".
 
@@ -124,6 +134,7 @@ the display. See [docs/hardware.md](docs/hardware.md), "Boot splash".
 | 0x000400 | stock U-Boot (from the stock card) |
 | 0x0C0000 | stock U-Boot env, 128 KiB (from the stock card) |
 | 0x100000, 0x200000 | uInitrd, normal and golden slot |
+| 0x300000 | the rescue slot, 5 MiB (the rescue system, `image/mkrescue.sh`) |
 | 0x800000, 0xC00000 | uImage, normal and golden slot |
 | 16 MiB | p1, FAT16 `TSXLOG`, 64 MiB |
 | 80 MiB | p2, ext4 `tsxroot`, 1536 MiB |

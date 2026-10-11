@@ -1,0 +1,51 @@
+#!/bin/sh
+# tsx-boot-mainline: from the rescue system, start the normal system again.
+#
+#   tsx-boot-mainline [--last-good] [--no-reboot] [--force]
+#
+# 1. Checks that the normal slots hold a kernel and a ramdisk with rescue
+#    support (tsx-kernel-slots check normal). --force skips this check.
+# 2. --last-good: copies the golden slots (the last kernel that booted well,
+#    tsx-kernel-slots promote) to the normal slots first. Use it when a new
+#    kernel in the normal slots does not boot.
+# 3. Sets the U-Boot retry counters to boot_retry=8 and golden_boot_retry=0
+#    (tsx-boot-ok --reset). U-Boot then boots the normal slots. If two boots
+#    fail again, U-Boot boots the golden slots, and this rescue comes back.
+# 4. Reboots (not with --no-reboot).
+# Test hooks: TSX_KERNEL_SLOTS (tsx-kernel-slots), TSX_BOOT_OK (tsx-boot-ok),
+# TSX_REBOOT (reboot -f).
+set -eu
+say() { echo "tsx-boot-mainline: $*" >&2; }
+die() { say "ERROR: $*"; exit 1; }
+SLOTS=${TSX_KERNEL_SLOTS:-/usr/local/sbin/tsx-kernel-slots}
+BOOTOK=${TSX_BOOT_OK:-/usr/local/sbin/tsx-boot-ok}
+REBOOT=${TSX_REBOOT:-reboot -f}
+
+lastgood=0 reboot=1 force=0
+for a in "$@"; do
+	case $a in
+	-h|--help) sed -n '2,17p' "$0"; exit 0;;
+	--last-good) lastgood=1;;
+	--no-reboot) reboot=0;;
+	--force) force=1;;
+	*) die "unknown argument $a (see --help)";;
+	esac
+done
+
+if [ "$lastgood" = 1 ]; then
+	"$SLOTS" check golden || die "the golden slots hold no kernel with rescue support: nothing copied"
+	"$SLOTS" restore || die "the copy of the golden slots failed. Run it again before a reboot."
+fi
+if ! "$SLOTS" check normal; then
+	[ "$force" = 1 ] || die "the normal slots hold no kernel with rescue support. Use --last-good, write a kernel (tsx-kernel-slots write), or use --force"
+	say "WARNING: --force: the normal slots are not checked"
+fi
+"$BOOTOK" --reset || die "tsx-boot-ok --reset failed: the U-Boot counters did not change"
+if [ "$reboot" = 1 ]; then
+	say "rebooting into the normal system in 3 s"
+	sync
+	sleep 3
+	$REBOOT
+	exit 0
+fi
+say "done. Run 'reboot -f' to start the normal system."

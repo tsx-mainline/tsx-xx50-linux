@@ -32,7 +32,10 @@ releases do not hold them.
    `lsblk -o NAME,SIZE,MODEL,TRAN`
 5. Read the first MiB (replace `sdX` with the device name):
    `sudo dd if=/dev/sdX of=stock-card.img bs=1M count=1`
-6. Remove the stock card from the PC.
+6. Optional: read the full card as a second file, for a restore of the
+   stock firmware without the stock card ([recovery.md](recovery.md)):
+   `sudo dd if=/dev/sdX bs=4M status=progress | gzip > stock-card-full.img.gz`
+7. Remove the stock card from the PC.
 
 The dump holds the MAC address and the unit id of your panel. Keep it
 private.
@@ -134,7 +137,8 @@ The logs are in `/var/log` on the panel: `messages`, `rc.log`,
 4. Connect the PoE cable. The panel starts the Crestron firmware.
 
 The stock U-Boot saves its settings on the card that it starts from. So the
-new card does not change the stock card.
+new card does not change the stock card. If the stock card is lost, see
+[recovery.md](recovery.md), "Go back to the stock firmware".
 
 ## Troubleshooting
 
@@ -143,5 +147,6 @@ new card does not change the stock card.
 | `image/mkcard.sh` stops with "the stock dump is too short" | The dump is smaller than 1 MiB. | Read the first MiB of the stock card again. |
 | `image/check-card.py` reports the U-Boot env CRC | The dump is not from a stock card, or the read failed. | Read the dump again from the stock card. |
 | No DHCP lease and no picture | The kernel did not start. | Write the card again. Check the image with `image/check-card.py` first. |
+| The rescue screen shows in place of the panel app | Two boots failed, or a rescue trigger was there. | Log in and read the reason. See [recovery.md](recovery.md). |
 | The setup bar does not show | The panel has settings already. | Push the top key (`power`), then tap "Open setup". |
 | ssh refuses the login | The image has no root key. | Set the key on the setup page. |

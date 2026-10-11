@@ -1,0 +1,181 @@
+#!/bin/sh
+# tsx-install-rootfs: from the rescue system, write a new root file system
+# into p2 of the boot card, or repair the packages of p2.
+#
+#   tsx-install-rootfs [--yes] [--wipe-data] SOURCE
+#   tsx-install-rootfs --packages [PACKAGE...]
+#   tsx-install-rootfs --shell
+#
+# SOURCE is one of:
+#   FILE or http(s)://URL   rootfs.ext4, rootfs.ext4.gz, rootfs.ext4.zst, or
+#                           the card parts of a release
+#                           (tsx-xx50-card-parts.tar.zst, which holds
+#                           work/rootfs.ext4). The name tells the format.
+#   - [FORMAT]              the same on stdin. FORMAT is ext4 (default), gz,
+#                           zst or parts. Example from a PC:
+#                             ssh root@<rescue-ip> tsx-install-rootfs --yes - < rootfs.ext4
+# The script writes the file system into p2, checks it (e2fsck) and grows it
+# to fill p2 (resize2fs). p1 (TSXLOG), p3 (tsxdata, /data), the kernel slots
+# and the U-Boot env do not change. On a card without p3, the panel data is
+# on p2 and the write deletes it: the script refuses unless --wipe-data is
+# set. Back the data up first (tsx-data-backup) and restore it after the
+# write (tsx-data-restore).
+#
+# --packages mounts p2 and runs apk in it (chroot, with the network of the
+# rescue): "apk fix --reinstall" of the given packages, or of all installed
+# packages. A package hook can write the kernel slots, as on the running
+# system. --shell opens a shell in the chroot instead.
+#
+# Env: TSX_CARD_DEV (default /dev/mmcblk0).
+set -eu
+PATH=/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/sbin
+DEV=${TSX_CARD_DEV:-/dev/mmcblk0}
+MNT=/run/tsx-root
+MIB=1048576
+say() { echo "tsx-install-rootfs: $*" >&2; }
+die() { say "ERROR: $*"; exit 1; }
+usage() { sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'; }
+
+part() { case $DEV in *[0-9]) echo "${DEV}p$1";; *) echo "$DEV$1";; esac; }
+P2=$(part 2) P3=$(part 3)
+is_mounted() { grep -q "^$1 " /proc/mounts; }
+
+chroot_in() {
+	[ -b "$P2" ] || die "no $P2"
+	is_mounted "$P2" && die "$P2 is mounted already"
+	say "check the file system of p2 (e2fsck -p)"
+	rc=0; e2fsck -p "$P2" || rc=$?
+	[ "$rc" -lt 4 ] || die "e2fsck found errors it cannot fix alone (exit $rc). Run e2fsck -f $P2 first."
+	mkdir -p "$MNT"
+	mount -t ext4 "$P2" "$MNT" || die "cannot mount $P2"
+	trap 'chroot_out' EXIT
+	for m in dev proc sys; do mount --bind "/$m" "$MNT/$m"; done
+	[ -b "$P3" ] && [ -d "$MNT/data" ] && mount -t ext4 "$P3" "$MNT/data" 2>/dev/null || true
+	cp /etc/resolv.conf "$MNT/etc/resolv.conf.rescue" 2>/dev/null &&
+		mount --bind "$MNT/etc/resolv.conf.rescue" "$MNT/etc/resolv.conf" 2>/dev/null || true
+}
+chroot_out() {
+	for m in etc/resolv.conf data sys proc dev; do umount "$MNT/$m" 2>/dev/null || true; done
+	rm -f "$MNT/etc/resolv.conf.rescue"
+	umount "$MNT" 2>/dev/null || true
+	sync
+}
+
+case "${1:-}" in
+''|-h|--help) usage; exit 0;;
+--packages)
+	shift
+	chroot_in
+	say "apk update"
+	chroot "$MNT" apk update || die "apk update failed (network? repositories?)"
+	if [ $# -eq 0 ]; then
+		set -- $(chroot "$MNT" apk info -q 2>/dev/null)
+		say "reinstall all $# installed packages"
+	fi
+	chroot "$MNT" apk fix --reinstall "$@" || die "apk fix failed"
+	say "done. Start the normal system with tsx-boot-mainline."
+	exit 0;;
+--shell)
+	chroot_in
+	say "a shell in p2 (exit to leave)"
+	chroot "$MNT" /bin/sh -l || true
+	exit 0;;
+esac
+
+YES=0 WIPE=0
+while [ $# -gt 0 ]; do
+	case $1 in
+	--yes|-y) YES=1;;
+	--wipe-data) WIPE=1;;
+	-) break;;
+	-*) die "unknown option $1 (see --help)";;
+	*) break;;
+	esac
+	shift
+done
+[ $# -ge 1 ] || { usage; exit 2; }
+SRC=$1 FMT=${2:-}
+if [ "$SRC" != - ]; then
+	case $SRC in
+	*.tar.zst) FMT=parts;;
+	*.zst) FMT=zst;;
+	*.gz) FMT=gz;;
+	*) FMT=ext4;;
+	esac
+fi
+FMT=${FMT:-ext4}
+case $FMT in ext4|gz|zst|parts) ;; *) die "unknown format $FMT (ext4, gz, zst or parts)";; esac
+case $SRC in
+http://*|https://*) ;;
+-) ;;
+*) [ -r "$SRC" ] || die "cannot read $SRC";;
+esac
+
+# ---- preflight -------------------------------------------------------------
+[ -b "$P2" ] || die "no $P2 (no boot card?)"
+is_mounted "$P2" && die "$P2 is mounted. Unmount it first."
+P2_BYTES=$(blockdev --getsize64 "$P2")
+if [ -b "$P3" ]; then
+	DATA="p3 (tsxdata) is kept"
+else
+	DATA="the card has no p3: the panel data on p2 is DELETED"
+	[ "$WIPE" = 1 ] || die "the card has no data partition, so the panel data is on p2 and the write deletes it. Back it up first (tsx-data-backup FILE), then run this again with --wipe-data, then restore it (tsx-data-restore FILE)."
+fi
+say "preflight:"
+say "  source  : $SRC (format $FMT)"
+say "  target  : $P2, $((P2_BYTES / MIB)) MiB"
+say "  data    : $DATA"
+say "  kept    : the kernel slots, the rescue slot, the U-Boot env, p1 (TSXLOG)"
+if [ "$YES" = 0 ]; then
+	[ -t 0 ] || die "no terminal for the question: use --yes"
+	printf 'Write the new root file system into %s? Type yes: ' "$P2" >&2
+	read -r ans || ans=
+	[ "$ans" = yes ] || die "not confirmed. Nothing was written."
+fi
+
+# ---- write -----------------------------------------------------------------
+fetch() {
+	case $SRC in
+	http://*|https://*) wget -q -O - "$SRC";;
+	-) cat;;
+	*) cat "$SRC";;
+	esac
+}
+unpack() {
+	case $FMT in
+	ext4) cat;;
+	gz) gzip -dc;;
+	zst) zstd -dc;;
+	parts) zstd -dc | tar -xO -f - ./work/rootfs.ext4;;
+	esac
+}
+NAME=${P2#/dev/}
+written() { awk '{print $7 * 512}' "/sys/class/block/$NAME/stat" 2>/dev/null || echo 0; }
+W0=$(written)
+T0=$(date +%s)
+say "write (the progress line shows every 5 s)"
+# ash gives a background job /dev/null as stdin: read the source on fd 7.
+exec 7<&0
+( fetch <&7 | unpack | dd of="$P2" bs=1M conv=fsync 2> /run/tsx-install-rootfs.dd ) &
+PID=$!
+while kill -0 "$PID" 2>/dev/null; do
+	sleep 5
+	w=$(( $(written) - W0 ))
+	printf 'tsx-install-rootfs:   %5d MiB written, %d s\n' $((w / MIB)) $(($(date +%s) - T0)) >&2
+done
+rc=0; wait "$PID" || rc=$?
+exec 7<&-
+sync
+grep -q 'No space left' /run/tsx-install-rootfs.dd && die "the new file system is larger than p2 ($((P2_BYTES / MIB)) MiB). p2 is now NOT usable: write a smaller one."
+[ "$rc" = 0 ] || die "the write failed (exit $rc): $(tail -n 2 /run/tsx-install-rootfs.dd | tr '\n' ' '). p2 is now NOT usable: run the command again."
+say "written: $(tail -n 1 /run/tsx-install-rootfs.dd)"
+
+# ---- check and grow ----------------------------------------------------------
+echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || true
+LABEL=$(blkid "$P2" 2>/dev/null | sed -n 's/.*LABEL="\([^"]*\)".*/\1/p')
+[ "$LABEL" = tsxroot ] || die "the new file system on $P2 has the label '$LABEL', not tsxroot. The ramdisk finds p2 by its partition, but the system needs the label: check the source."
+rc=0; e2fsck -f -y "$P2" >&2 || rc=$?
+[ "$rc" -le 1 ] || die "e2fsck of the new file system failed (exit $rc)"
+resize2fs "$P2" >&2 || die "resize2fs failed. The file system keeps its old size."
+e2fsck -f -n "$P2" >/dev/null 2>&1 || die "e2fsck found errors after the resize"
+say "done in $(($(date +%s) - T0)) s. Start the normal system with tsx-boot-mainline."

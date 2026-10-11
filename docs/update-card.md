@@ -14,12 +14,15 @@ The script writes only these ranges, from the new image to the same offsets:
 
 - the normal uInitrd slot (1 MiB at 0x100000)
 - the normal uImage slot (4 MiB at 0x800000)
+- the rescue slot (5 MiB at 0x300000), when the new image has a rescue
+  system
 - p2 (`tsxroot`, the root file system)
 
 The script keeps the MBR, the stock U-Boot and its env, the golden slots, p1
 (`TSXLOG`) and p3 (`tsxdata`). So the settings, the layout, the keys and the
 logs stay. The golden slots keep the last good kernel. If the new kernel
-fails two times, U-Boot boots the golden slots. After good boots of the new
+fails two times, U-Boot boots the golden slots, and the rescue system starts
+([recovery.md](recovery.md)). After good boots of the new
 kernel, run `tsx-kernel-slots promote` on the panel. It copies the new
 kernel to the golden slots. The option `--all-slots` also writes the golden
 slots.

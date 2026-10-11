@@ -28,7 +28,8 @@ the panel.
 |---|---|
 | `/usr/local/lib/tsx/board.sh` | The board values. The MAC, the model and the host name come from the stock U-Boot env on the card (0xC0000, read only). The serial console is `ttymxc0` |
 | `/usr/local/sbin/tsx-hw` | The parts that the TSS-752 does not have (`/run/tsx/hw.conf`) |
-| `/usr/local/sbin/tsx-kernel-slots` | Writes a uImage and a uInitrd into the normal raw slots of the boot card, and copies a kernel that booted well to the golden slots (see "Kernel package") |
+| `/usr/local/sbin/tsx-kernel-slots` | Writes a uImage and a uInitrd into the normal raw slots of the boot card, copies a kernel that booted well to the golden slots, and writes the rescue slot (see "Kernel package") |
+| `/usr/local/sbin/tsx-boot-rescue` | Starts the rescue system at the next boot (`--golden`: through the golden slots of U-Boot). See [recovery.md](recovery.md) |
 | `/etc/tsx/panel-board.conf` | The backlight range, the CPU governor, the CPU boost of the panel app and the touch controller mode |
 | `/etc/init.d/tsx-cpufreq` | Sets the governor of `panel-board.conf` (`ondemand`, `up_threshold` 40, sampling rate 20 ms) after `tsx-setup` |
 | `/etc/init.d/tsx-touch` | Keeps the FT5x06 touch controller in its active scan mode (`TOUCH_ALWAYS_ACTIVE`), as the factory driver did |
@@ -191,7 +192,8 @@ tsx-xx50-kernel-lts gives the same kernel through `apk`:
 
 | File | Content |
 |---|---|
-| `/boot/uImage-lts`, `/boot/uInitrd-lts` | The kernel and the ramdisk (the boot splash) |
+| `/boot/uImage-lts`, `/boot/uInitrd-lts` | The kernel and the ramdisk (the boot splash, the start of the rescue system) |
+| `/boot/tsx-xx50-rescue-lts.img` | The rescue system for the rescue slot |
 | `/lib/modules/<release>/` | The modules |
 
 At install and at upgrade, the package runs
@@ -199,11 +201,13 @@ At install and at upgrade, the package runs
 TSS-752 that runs from its card. The command writes the normal slots and
 reads them back. The golden slots keep the last good kernel. The new kernel
 starts at the next boot. If the command reports an error, run it again
-before a reboot.
+before a reboot. Then the package runs
+`tsx-kernel-slots rescue /boot/tsx-xx50-rescue-lts.img`. It writes the rescue
+slot only when its content differs.
 
-If the new kernel fails two times, U-Boot boots the golden slots (see
-README.md, "Boot path"). After good boots of the new kernel, copy it to the
-golden slots:
+If the new kernel fails two times, U-Boot boots the golden slots, and the
+rescue system starts (see [recovery.md](recovery.md)). After good boots of
+the new kernel, copy it to the golden slots:
 
 ```sh
 tsx-kernel-slots promote
@@ -214,8 +218,11 @@ The command copies only the kernel of the current boot, and only after
 a boot from the golden slots, and when the normal slots changed after the
 start. `tsx-kernel-slots promote --force` skips these checks.
 
-`tsx-kernel-slots show` prints the kernel name in each slot and whether the
-golden slots hold the same files as the normal slots.
+`tsx-kernel-slots show` prints the kernel name in each slot, whether the
+golden slots hold the same files as the normal slots, and the version of the
+rescue system. The golden ramdisk starts the rescue system only from 0.3.3
+on. So run `tsx-kernel-slots promote` once after the first good boot of a
+0.3.3 kernel.
 
 ## Panel app on the xx50
 

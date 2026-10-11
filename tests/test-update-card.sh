@@ -5,7 +5,8 @@
 # writes no /dev file. It checks:
 #  - an update writes the normal kernel slots and p2, and keeps the MBR, the
 #    U-Boot and env range, the gap, the golden slots, p1 and p3 byte for
-#    byte. --all-slots also writes the golden slots.
+#    byte. --all-slots also writes the golden slots. A new image with a
+#    rescue system also writes the rescue slot (0x300000, 5 MiB).
 #  - a .img.gz with a .sha256 file works, a wrong checksum is refused
 #  - the refusals: p2 start differs, new p2 larger, p3 too near, wrong disk
 #    id (and --force-id), no p3 (and --no-data), no partition table, no
@@ -145,6 +146,22 @@ same "--all-slots: uInitrd golden written" "$TGT" "$T/new.img" $SL_IN_G $MB
 same "--all-slots: uImage golden written" "$TGT" "$T/new.img" $SL_KN_G $((4 * MB))
 same "--all-slots: uImage normal written" "$TGT" "$T/new.img" $SL_KN_N $((4 * MB))
 same "--all-slots: p3 kept" "$TGT" "$T/old.img" $((OLD_P3 * 512)) $((P3SIZE * 512))
+
+echo "== a new image with a rescue system =="
+cp "$T/new.img" "$T/new-r.img"
+pat "$T/new-r.img" new-rescue-archive $((0x300000)) $((5 * MB))
+printf 'TSX-RESCUE 1\nsize 100\nversion test\n' | dd of="$T/new-r.img" bs=1 seek=$((0x300000)) conv=notrunc 2>/dev/null
+fresh_target
+run $UCARGS "$T/new-r.img" "$TGT"
+check "rescue: exit 0" test "$RC" -eq 0
+grep -q "ok   rescue" "$T/out" && ok "rescue: read back" || bad "rescue: no read-back line"
+same "rescue: the rescue slot is written (5 MiB)" "$TGT" "$T/new-r.img" $((0x300000)) $((5 * MB))
+same "rescue: uInitrd golden kept" "$TGT" "$T/old.img" $SL_IN_G $MB
+same "rescue: uImage golden kept" "$TGT" "$T/old.img" $SL_KN_G $((4 * MB))
+same "rescue: p3 kept" "$TGT" "$T/old.img" $((OLD_P3 * 512)) $((P3SIZE * 512))
+fresh_target
+run $UCARGS "$T/new.img" "$TGT"
+grep -q "has no rescue system" "$T/out" && ok "no rescue system in the new image: a warning" || bad "no warning for an image with no rescue"
 
 echo "== gz image and checksum =="
 cp "$T/new.img" "$T/nn.img"; gzip -k -f "$T/nn.img"

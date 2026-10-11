@@ -5,6 +5,9 @@
 #
 #   tsx-kernel-slots write <uImage> <uInitrd>
 #   tsx-kernel-slots promote [--force]
+#   tsx-kernel-slots restore
+#   tsx-kernel-slots rescue <tsx-xx50-rescue.img>
+#   tsx-kernel-slots check normal|golden
 #   tsx-kernel-slots show
 #   tsx-kernel-slots sum
 #
@@ -15,7 +18,10 @@
 #   0xC00000  uImage, golden slot
 # U-Boot boots the normal slots. After two failed boots it boots the golden
 # slots (tsx-boot-ok keeps the retry counters, README.md "Boot path"). So
-# the golden slots hold the last kernel that is known to boot.
+# the golden slots hold the last kernel that is known to boot. The ramdisk
+# starts the rescue system after a boot of the golden slots.
+#   0x300000  the rescue slot (5 MiB): the rescue system that the ramdisk
+#             unpacks (image/mkrescue.sh, docs/recovery.md)
 #
 # "write" writes the new files into the normal slots only and reads them
 # back. The golden slots do not change. Each file is padded with zeros to its
@@ -27,8 +33,20 @@
 # ($TSX_RUN/tsx/boot-ok, written by tsx-boot-ok with the "sum" of the
 # normal slots at the start of the boot). --force skips these checks.
 #
-# "show" prints the name in the uImage and uInitrd header of each slot, and
-# whether the golden slots hold the same files as the normal slots.
+# "restore" copies the golden slots to the normal slots and reads them back:
+# the last good kernel boots again (the rescue system: tsx-boot-mainline
+# --last-good).
+#
+# "rescue" writes a rescue system into the rescue slot and reads it back.
+# It checks the header ("TSX-RESCUE 1", the size) and the gzip archive
+# first. It writes nothing when the slot already holds the file.
+#
+# "check normal|golden" checks that the slots hold a kernel and a ramdisk
+# whose name says it can start the rescue system ("rescue 1").
+#
+# "show" prints the name in the uImage and uInitrd header of each slot,
+# whether the golden slots hold the same files as the normal slots, and the
+# version of the rescue system.
 # "sum" prints the sha256 of the normal slots (the 4 MiB kernel area, then the
 # 1 MiB ramdisk area).
 #
@@ -47,6 +65,10 @@ DEV=${TSX_CARD_DEV:-/dev/mmcblk0}
 RUN=${TSX_RUN:-/run}
 MIB=1048576
 DISK_ID=$((0x7458a050))
+RESCUE_OFF=$((0x300000))
+RESCUE_AREA=$((5 * MIB))
+# The ramdisk name of image/mkinitrd.sh: the ramdisk can start the rescue.
+RESCUE_TAG="rescue 1"
 
 die() { echo "tsx-kernel-slots: $*" >&2; exit 1; }
 
@@ -122,6 +144,53 @@ copy() {
 	slot "$1" "$TMP/area" "$3" "$4"
 }
 
+# rescue_hdr FILE OFFSET: the header lines of a rescue slot, or nothing.
+rescue_hdr() {
+	_h=$(dd if="$1" bs=512 skip=$(($2 / 512)) count=1 2>/dev/null | tr -d '\0')
+	[ "$(printf '%s\n' "$_h" | head -n 1)" = "TSX-RESCUE 1" ] && printf '%s\n' "$_h"
+	return 0
+}
+
+# check_rescue FILE: a rescue slot image (header, then a gzip archive) that
+# fits the slot.
+check_rescue() {
+	[ -f "$1" ] || die "no file $1"
+	_h=$(rescue_hdr "$1" 0)
+	[ -n "$_h" ] || die "$1 is not a rescue system (no TSX-RESCUE 1 header)"
+	_n=$(printf '%s\n' "$_h" | sed -n 's/^size //p')
+	case $_n in ''|*[!0-9]*) die "$1: no size in the header";; esac
+	_sz=$(wc -c < "$1")
+	[ "$_sz" -eq $((512 + _n)) ] || die "$1: $_sz bytes, the header says $((512 + _n))"
+	[ "$_sz" -le "$RESCUE_AREA" ] || die "$1: $_sz bytes, more than the $RESCUE_AREA bytes of the rescue slot"
+	tail -c +513 "$1" | gzip -t 2>/dev/null || die "$1: the archive is damaged (gzip -t)"
+}
+
+# check_slots normal|golden: a kernel image and a ramdisk image that can
+# start the rescue. Print the problems.
+check_slots() {
+	case $1 in
+	normal) _k=$((0x800000)) _r=$((0x100000));;
+	golden) _k=$((0xC00000)) _r=$((0x200000));;
+	*) die "usage: tsx-kernel-slots check normal|golden";;
+	esac
+	_bad=
+	[ "$(u32be "$DEV" $_k)" -eq $((0x27051956)) ] && [ "$(u8 "$DEV" $((_k + 30)))" = 2 ] ||
+		_bad="no kernel image at $(printf 0x%X $_k)"
+	if [ "$(u32be "$DEV" $_r)" -eq $((0x27051956)) ] && [ "$(u8 "$DEV" $((_r + 30)))" = 3 ]; then
+		case $(name_at $_r) in
+		*"$RESCUE_TAG"*) ;;
+		*) _bad="${_bad:+$_bad, }the ramdisk at $(printf 0x%X $_r) cannot start the rescue system ($(name_at $_r))";;
+		esac
+	else
+		_bad="${_bad:+$_bad, }no ramdisk image at $(printf 0x%X $_r)"
+	fi
+	if [ -n "$_bad" ]; then
+		echo "tsx-kernel-slots: $1 slots: $_bad" >&2
+		return 1
+	fi
+	echo "tsx-kernel-slots: $1 slots: $(name_at $_k), $(name_at $_r)"
+}
+
 name_at() {
 	if [ "$(u32be "$DEV" "$1")" -eq $((0x27051956)) ]; then
 		dd if="$DEV" bs=1 skip=$(($1 + 32)) count=32 2>/dev/null | tr -d '\0'
@@ -165,6 +234,43 @@ promote)
 	copy "uImage golden" $((0x800000)) $((0xC00000)) $((4 * MIB))
 	echo "tsx-kernel-slots: done. The golden slots hold $(name_at $((0xC00000)))."
 	;;
+restore)
+	[ $# -eq 1 ] || die "usage: tsx-kernel-slots restore"
+	check_card
+	check_slots golden >/dev/null || die "the golden slots hold no kernel and ramdisk that can start: nothing copied"
+	if [ "$(normal_sum)" = "$(golden_sum)" ]; then
+		echo "tsx-kernel-slots: the normal slots already hold the files of the golden slots"
+		exit 0
+	fi
+	TMP=$(mktemp -d)
+	trap 'rm -rf "$TMP"' EXIT
+	echo "tsx-kernel-slots: copy the golden slots to the normal slots of $DEV"
+	copy "uInitrd normal" $((0x200000)) $((0x100000)) $MIB
+	copy "uImage normal" $((0xC00000)) $((0x800000)) $((4 * MIB))
+	echo "tsx-kernel-slots: done. The normal slots hold $(name_at $((0x800000)))."
+	;;
+rescue)
+	[ $# -eq 2 ] || die "usage: tsx-kernel-slots rescue <tsx-xx50-rescue.img>"
+	check_rescue "$2"
+	check_card
+	TMP=$(mktemp -d)
+	trap 'rm -rf "$TMP"' EXIT
+	_ver=$(rescue_hdr "$2" 0 | sed -n 's/^version //p')
+	dd if=/dev/zero of="$TMP/rescue.pad" bs=$MIB count=$((RESCUE_AREA / MIB)) 2>/dev/null
+	dd if="$2" of="$TMP/rescue.pad" conv=notrunc 2>/dev/null
+	if [ "$(sha256sum < "$TMP/rescue.pad" | cut -d' ' -f1)" = "$(area_sum $RESCUE_OFF $RESCUE_AREA)" ]; then
+		echo "tsx-kernel-slots: the rescue slot already holds $_ver"
+		exit 0
+	fi
+	echo "tsx-kernel-slots: $_ver to the rescue slot of $DEV"
+	slot "rescue" "$2" $RESCUE_OFF $RESCUE_AREA
+	echo "tsx-kernel-slots: done."
+	;;
+check)
+	[ $# -eq 2 ] || die "usage: tsx-kernel-slots check normal|golden"
+	check_card
+	check_slots "$2"
+	;;
 sum)
 	check_card
 	normal_sum
@@ -176,6 +282,8 @@ show)
 	echo "uInitrd normal (0x100000): $(name_at $((0x100000)))"
 	echo "uInitrd golden (0x200000): $(name_at $((0x200000)))"
 	if [ "$(normal_sum)" = "$(golden_sum)" ]; then echo "golden = normal: yes"; else echo "golden = normal: no"; fi
+	_ver=$(rescue_hdr "$DEV" $RESCUE_OFF | sed -n 's/^version //p')
+	echo "rescue         (0x300000): ${_ver:-(no rescue system)}"
 	;;
 *)
 	awk 'NR > 2 && !/^#/ {exit} NR > 2 {sub(/^# ?/, ""); print}' "$0"

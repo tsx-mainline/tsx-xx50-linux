@@ -31,19 +31,20 @@ jobs:
       - name: get the kernel of kernel/KERNEL_REV (kernel/fetch-kernel.sh)
         run: kernel/fetch-kernel.sh ../linux
 
-      - name: build the kernel (kernel/build-kernel.sh) and the ramdisk (image/mkinitrd.sh)
+      - name: build the kernel (kernel/build-kernel.sh), the ramdisk (image/mkinitrd.sh) and the rescue system (image/mkrescue.sh)
         env:
           TSX_COMMON: ${{ github.workspace }}/tsx-linux-common
         run: |
           kernel/build-kernel.sh ../linux out/kernel
           image/mkinitrd.sh out/kernel out/kernel
+          image/mkrescue.sh out/kernel
 
       - name: kernel release, commit, sizes
         id: info
         run: |
           echo "release=$(cat out/kernel/kernel.release)" >> "$GITHUB_OUTPUT"
           cat out/kernel/kernel.release out/kernel/kernel.commit
-          ls -l out/kernel/uImage out/kernel/uInitrd out/kernel/*.dtb
+          ls -l out/kernel/uImage out/kernel/uInitrd out/kernel/tsx-xx50-rescue.img out/kernel/*.dtb
 
       - uses: actions/upload-artifact@v4
         with:
@@ -51,6 +52,8 @@ jobs:
           path: |
             out/kernel/uImage
             out/kernel/uInitrd
+            out/kernel/tsx-xx50-rescue.img
+            out/kernel/rescue.manifest
             out/kernel/zImage-dtb
             out/kernel/*.dtb
             out/kernel/kernel.release

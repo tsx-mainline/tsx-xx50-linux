@@ -21,8 +21,9 @@ on:
 # here downloads or packs a Crestron file.
 #
 # Assets of a release:
-#   tsx-xx50-kernel-lts-bundle.tar.zst  uImage, uInitrd, the board DTB, the
-#       modules, kernel.release, kernel.commit, CHECKSUMS.sha256. The package
+#   tsx-xx50-kernel-lts-bundle.tar.zst  uImage, uInitrd, the rescue system
+#       tsx-xx50-rescue.img (image/mkrescue.sh), the board DTB, the modules,
+#       kernel.release, kernel.commit, CHECKSUMS.sha256. The package
 #       tsx-xx50-kernel-lts of tsx-aports pins it.
 #   tsx-xx50-panel-app-src-<version>.tar.gz  the generated C++ project of the
 #       panel app (esphome-lvgl/mksource.sh). The package tsx-xx50-panel-app
@@ -30,7 +31,8 @@ on:
 #   tsx-xx50-panel-app-<version>.tar.gz  the program that this run compiled,
 #       with BUILDINFO (for a check, no package uses it).
 #   tsx-xx50-card-parts.tar.zst  kernel/ (uImage, kernel.release), work/
-#       (uInitrd, rootfs.ext4, data.ext4) and rootfs.manifest: the input of
+#       (uInitrd, tsx-xx50-rescue.img, rootfs.ext4, data.ext4) and
+#       rootfs.manifest: the input of
 #       image/mkcard.sh. The root file system comes from the published
 #       packages, so this asset exists only when tsx-aports has the xx50
 #       packages of the release. The run of a tag push skips it when the
@@ -60,12 +62,14 @@ jobs:
       - name: get the kernel of kernel/KERNEL_REV (kernel/fetch-kernel.sh)
         run: kernel/fetch-kernel.sh ../linux
 
-      - name: build the kernel and the ramdisk
+      - name: build the kernel, the ramdisk and the rescue system
         env:
           TSX_COMMON: ${{ github.workspace }}/tsx-linux-common
+          RESCUE_VERSION: ${{ github.ref_name }}
         run: |
           kernel/build-kernel.sh ../linux out/kernel
           image/mkinitrd.sh out/kernel out/kernel
+          image/mkrescue.sh out/kernel
 
       - name: pack the kernel bundle
         run: |
@@ -74,9 +78,9 @@ jobs:
           REL=$(cat $K/kernel.release)
           B=out/kbundle
           mkdir -p $B
-          cp $K/uImage $K/uInitrd $K/imx53-crestron-tss752.dtb $K/kernel.release $K/kernel.commit $B/
+          cp $K/uImage $K/uInitrd $K/tsx-xx50-rescue.img $K/imx53-crestron-tss752.dtb $K/kernel.release $K/kernel.commit $B/
           tar -C $K/modules --owner=0 --group=0 --numeric-owner -czf "$B/modules-$REL.tar.gz" lib
-          (cd $B && sha256sum uImage uInitrd imx53-crestron-tss752.dtb "modules-$REL.tar.gz" > CHECKSUMS.sha256)
+          (cd $B && sha256sum uImage uInitrd tsx-xx50-rescue.img imx53-crestron-tss752.dtb "modules-$REL.tar.gz" > CHECKSUMS.sha256)
           cat $B/CHECKSUMS.sha256
           tar --zstd -cf tsx-xx50-kernel-lts-bundle.tar.zst -C $B .
           ls -l tsx-xx50-kernel-lts-bundle.tar.zst
@@ -194,11 +198,11 @@ jobs:
           P=out/parts
           mkdir -p $P/kernel $P/work
           cp out/kernel/uImage out/kernel/kernel.release $P/kernel/
-          cp out/kernel/uInitrd out/work/rootfs.ext4 out/work/data.ext4 $P/work/
+          cp out/kernel/uInitrd out/kernel/tsx-xx50-rescue.img out/work/rootfs.ext4 out/work/data.ext4 $P/work/
           cp out/work/rootfs.manifest $P/
           # Only these files. None of them comes from a stock card.
           (cd $P && find . -type f | sort) | tee parts.list
-          [ "$(cat parts.list | tr '\n' ' ')" = "./kernel/kernel.release ./kernel/uImage ./rootfs.manifest ./work/data.ext4 ./work/rootfs.ext4 ./work/uInitrd " ]
+          [ "$(cat parts.list | tr '\n' ' ')" = "./kernel/kernel.release ./kernel/uImage ./rootfs.manifest ./work/data.ext4 ./work/rootfs.ext4 ./work/tsx-xx50-rescue.img ./work/uInitrd " ]
           tar --zstd -cf tsx-xx50-card-parts.tar.zst -C $P .
           ls -l tsx-xx50-card-parts.tar.zst
 

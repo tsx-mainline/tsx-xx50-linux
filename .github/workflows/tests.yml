@@ -47,6 +47,10 @@ jobs:
         run: sh tests/test-kernel-slots.sh
       - name: tests/test-boot-ok.sh - U-Boot retry counters on made-up envs (armv7 Alpine container)
         run: sh tests/test-boot-ok.sh
+      - name: tests/test-rescue-tools.sh - tsx-boot-rescue, tsx-boot-mainline, tsx-restore-stock (busybox sh)
+        run: sh tests/test-rescue-tools.sh
+      - name: tests/test-init.sh - the ramdisk program, env, rescue archive, RESCUE file (armv7 Alpine container)
+        run: sh tests/test-init.sh
       - name: tests/test-update-card.sh - card update on image files (busybox sh)
         run: sh tests/test-update-card.sh
       - name: tests/test-update-card.sh - the same with dash

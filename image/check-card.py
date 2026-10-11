@@ -12,6 +12,9 @@ Checks:
     entry 0x71000000, size within the 4 MiB slot that U-Boot reads
   - the uInitrd headers in both ramdisk slots: size within 384 KiB, a gzip
     newc cpio with /init, /dev/console, tsx-splash and an 800x480 frame
+  - the ramdisk name says that it can start the rescue system ("rescue 1")
+  - the rescue slot at 0x300000: the "TSX-RESCUE 1" header, a gzip newc
+    cpio within 5 MiB with /sbin/init, the rcS and the rescue tools
   - the DTB appended to the zImage: FDT magic, structure, model, compatible
     (with dtc, if dtc is in PATH, also a full decompile)
   - the TSXLOG FAT label and the ext4 superblocks of the root and data
@@ -33,6 +36,7 @@ INITRD_SLOTS = {"normal": 0x100000, "golden": 0x200000}
 KERNEL_READ = 0x2000 * 512
 INITRD_READ = 0x300 * 512
 LOADADDR = 0x71000000
+RESCUE_OFF, RESCUE_AREA = 0x300000, 5 << 20
 DISK_ID = 0x7458A050
 
 failures = []
@@ -203,6 +207,25 @@ def main():
             check(want in names, f"the ramdisk has /{want}")
     except (OSError, ValueError) as e:
         check(False, f"the ramdisk is a gzip newc cpio ({e})")
+
+    print("== rescue slot")
+    hdr = read(img, RESCUE_OFF, 512).rstrip(b"\0").decode(errors="replace").split("\n")
+    if check(hdr[0] == "TSX-RESCUE 1", "rescue slot header TSX-RESCUE 1"):
+        fields = dict(line.split(" ", 1) for line in hdr[1:] if " " in line)
+        size = int(fields.get("size", "0"))
+        print(f"      version '{fields.get('version', '')}', {size} bytes")
+        check(0 < size <= RESCUE_AREA - 512, "the rescue archive fits the 5 MiB slot")
+        try:
+            names = cpio_names(gzip.decompress(read(img, RESCUE_OFF + 512, size)))
+            print(f"      {len(names)} entries")
+            for want in ("sbin/init", "etc/init.d/rcS", "etc/inittab", "usr/sbin/tsx-rescue-status",
+                         "usr/sbin/tsx-rescue-login", "usr/sbin/tsx-boot-mainline", "usr/sbin/dropbear",
+                         "usr/local/sbin/tsx-boot-ok", "usr/local/sbin/tsx-kernel-slots"):
+                check(want in names, f"the rescue system has /{want}")
+        except (OSError, ValueError, EOFError) as e:
+            check(False, f"the rescue archive is a gzip newc cpio ({e})")
+    rd_name = read(img, INITRD_SLOTS["normal"] + 32, 32).split(b"\0")[0].decode(errors="replace")
+    check("rescue 1" in rd_name, f"the ramdisk can start the rescue system ('{rd_name}')")
 
     print("== file systems")
     p1, p2 = parts[0][2] * 512, parts[1][2] * 512

@@ -1,0 +1,60 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-or-later
+# tsx-boot-rescue: start the rescue system at the next boot (xx50).
+#
+#   tsx-boot-rescue [--golden] [--no-reboot]
+#
+# Default: writes /etc/tsx/force-rescue on the root file system and reboots.
+# The ramdisk sees the file, deletes it and starts the rescue system of the
+# rescue slot. So the boot after the rescue is normal again.
+# --golden: sets the U-Boot retry counters to boot_retry=10 and
+# golden_boot_retry=0 (tsx-boot-ok --fallback) and reboots. U-Boot then
+# boots the golden slots, as after two failed boots, and the ramdisk starts
+# the rescue system. This is the path of a real failure, so it also checks
+# the golden slots. U-Boot keeps the golden slots for up to five boots:
+# leave the rescue with tsx-boot-mainline.
+# Both ways check first that the rescue slot holds a rescue system and that
+# the ramdisk of the slots that boot next can start it
+# (tsx-kernel-slots show and check).
+#
+# Test hooks: TSX_KERNEL_SLOTS, TSX_BOOT_OK, TSX_FORCE_RESCUE (the flag
+# file), TSX_REBOOT (default: reboot).
+set -eu
+SLOTS=${TSX_KERNEL_SLOTS:-/usr/local/sbin/tsx-kernel-slots}
+BOOTOK=${TSX_BOOT_OK:-/usr/local/sbin/tsx-boot-ok}
+FLAG=${TSX_FORCE_RESCUE:-/etc/tsx/force-rescue}
+REBOOT=${TSX_REBOOT:-reboot}
+say() { echo "tsx-boot-rescue: $*" >&2; }
+die() { say "ERROR: $*"; exit 1; }
+
+golden=0 reboot=1
+for a in "$@"; do
+	case $a in
+	-h|--help) sed -n '3,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
+	--golden) golden=1;;
+	--no-reboot) reboot=0;;
+	*) die "unknown argument $a (see --help)";;
+	esac
+done
+
+ver=$("$SLOTS" show 2>/dev/null | sed -n 's/^rescue *(0x300000): //p')
+case $ver in
+''|"(no rescue system)") die "the rescue slot holds no rescue system. Install the kernel package again, or write one: tsx-kernel-slots rescue <file>";;
+esac
+if [ "$golden" = 1 ]; then
+	"$SLOTS" check golden >&2 || die "the golden slots cannot start the rescue system. Run 'tsx-kernel-slots promote' after a good boot of a new kernel first."
+	"$BOOTOK" --fallback >&2 || die "tsx-boot-ok --fallback failed: the U-Boot counters did not change"
+	say "the next start boots the golden slots and the rescue system ($ver)"
+else
+	"$SLOTS" check normal >&2 || die "the ramdisk of the normal slots cannot start the rescue system. Install a newer kernel package first."
+	mkdir -p "$(dirname "$FLAG")"
+	echo "tsx-boot-rescue $(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)" > "$FLAG"
+	sync
+	say "the next start runs the rescue system ($ver) once"
+fi
+if [ "$reboot" = 1 ]; then
+	say "rebooting"
+	$REBOOT
+else
+	say "reboot to start it"
+fi

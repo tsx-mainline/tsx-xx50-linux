@@ -1,0 +1,19 @@
+#!/bin/sh
+# tsx-rescue-help: the tools of the xx50 rescue system. A login shell prints
+# it (/etc/profile.d/tsx-rescue.sh): ssh logins and the serial console.
+echo "TSX xx50 rescue system ($(head -n 1 /etc/tsx/rescue-version 2>/dev/null), kernel $(uname -r))"
+[ -r /run/rescue-reason ] && echo "why: $(cat /run/rescue-reason)"
+echo "  tsx-boot-mainline           start the normal system again (resets the U-Boot"
+echo "                              counters, reboots). --last-good: first copy the"
+echo "                              golden kernel to the normal slots"
+echo "  tsx-boot-ok --status        the retry counters of U-Boot"
+echo "  tsx-kernel-slots show       the kernel slots and the rescue slot"
+echo "  tsx-install-rootfs          write a new root file system into p2, or reinstall"
+echo "                              the packages of p2 (see --help)"
+echo "  tsx-data-backup FILE|-      back up the panel data (/data)"
+echo "  tsx-data-restore FILE|-     restore the panel data from a backup"
+echo "  tsx-restore-stock           write a dump of the stock card onto this card"
+echo "                              (see --help; the stock U-Boot stays as it is)"
+echo "  e2fsck -f /dev/mmcblk0p2    check the root file system"
+echo "  reboot -f                   start again (this rescue comes back while the"
+echo "                              U-Boot counters say golden or the trigger is there)"

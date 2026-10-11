@@ -1,7 +1,14 @@
 #!/bin/sh
-# tsx-boot-ok [--status|--dry-run]: after a good boot from the normal slots,
-# set the retry counters of the stock U-Boot to boot_retry=8 and
-# golden_boot_retry=0.
+# tsx-boot-ok [--status|--dry-run|--reset|--fallback]: after a good boot from
+# the normal slots, set the retry counters of the stock U-Boot to
+# boot_retry=8 and golden_boot_retry=0.
+#   --reset     the same values, also after a boot of the golden slots (the
+#               rescue system: tsx-boot-mainline)
+#   --fallback  boot_retry=10 and golden_boot_retry=0: the next start boots
+#               the golden slots, so the rescue system starts
+#               (tsx-boot-rescue --golden)
+#   --stock     boot_retry=0 and golden_boot_retry=0, the values of a stock
+#               card (tsx-restore-stock)
 #
 # The stock U-Boot adds 1 to boot_retry at each start. It boots the normal
 # slots while boot_retry is 10 or less, and the golden slots from 11 on (see
@@ -52,11 +59,16 @@ readenv() {
 }
 getv() { printf '%s\n' "$1" | sed -n "s/^$2=//p"; }
 
+case "$mode" in
+--status|--dry-run|write|--reset|--fallback|--stock) ;;
+*) sed -n '2,13p' "$0" >&2; exit 2;;
+esac
 env0=$(readenv)
 br=$(getv "$env0" boot_retry); gr=$(getv "$env0" golden_boot_retry); golden=$(getv "$env0" golden)
 now="boot_retry=$br golden_boot_retry=$gr golden=$golden"
+case "$mode" in --fallback) WANT_RETRY=10;; --stock) WANT_RETRY=0;; esac
 want=
-if [ "$golden" = 0 ]; then
+if [ "$golden" = 0 ] || [ "$mode" = --reset ] || [ "$mode" = --fallback ] || [ "$mode" = --stock ]; then
 	[ "$br" = "$WANT_RETRY" ] || want="${want}boot_retry $WANT_RETRY
 "
 	[ "$gr" = 0 ] || want="${want}golden_boot_retry 0
@@ -70,15 +82,14 @@ case "$mode" in
 	if [ -n "$want" ]; then echo "would set: $(printf '%s' "$want" | tr ' \n' '=,' | sed 's/,$//') (now $now)"
 	else echo "nothing to do ($now)"; fi
 	exit 0;;
-write) ;;
-*) sed -n '2,4p' "$0" >&2; exit 2;;
 esac
-if [ "$golden" != 0 ]; then echo "U-Boot booted the golden slots ($now): nothing written"; exit 0; fi
+if [ "$mode" = write ] && [ "$golden" != 0 ]; then echo "U-Boot booted the golden slots ($now): nothing written"; exit 0; fi
 # mark_good: this boot from the normal slots is good (for tsx-kernel-slots promote).
 mark_good() {
 	[ -n "${TSX_BOOT_SLOTS:-}" ] || return 0
 	mkdir -p "$run/tsx" && printf 'slots=%s\n' "$TSX_BOOT_SLOTS" > "$run/tsx/boot-ok"
 }
+[ "$mode" = write ] || mark_good() { :; }
 if [ -z "$want" ]; then mark_good; echo "env already good ($now): nothing written"; exit 0; fi
 
 scr=$run/tsx-boot-ok.setenv
