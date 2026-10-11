@@ -27,7 +27,7 @@ firmware, put the stock SD card back in the panel.
 | Audio capture | The digital microphone, tested at 16 kHz. No voice service uses it. |
 | Panel app | Home Assistant cards, the settings overlay, screen dim and off, the light bars and the keys as Home Assistant entities. |
 | Setup page | Pairing code on the screen, the panel settings, the layout editor. |
-| Updates | `apk upgrade` from the TSX package repository. `image/update-card.sh` for a new image on a card that keeps its data. |
+| Updates | Automatic package updates from the TSX package repository (`tsx-autoupdate`, 03:00 to 05:00, only with the screen off). `image/update-card.sh` for a new image on a card that keeps its data. |
 
 The hardware details are in [docs/hardware.md](docs/hardware.md). The
 models and their status are in [docs/compatibility.md](docs/compatibility.md).

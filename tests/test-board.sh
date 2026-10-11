@@ -7,6 +7,9 @@
 #  - the board file of the panel app gives the panel app service its
 #    environment (tsx-panel-app-run --print)
 #  - the default layout and the example layout pass tsx-layout-check
+#  - the apk repositories: the image block and tsx-config apply give the
+#    public tsx-aports common and xx50 and Alpine main and community
+#  - tsx-autoupdate: the image runs it, and the xx50 packages need a reboot
 # It needs sh, python3 and dd. It runs no compiler.
 set -eu
 HERE=$(cd "$(dirname "$0")/.." && pwd)
@@ -46,6 +49,50 @@ TSX_ICON_FILE="$COMMON/panel-app/usr/local/share/tsx/panel-app/icons.txt" python
 	&& ok "panel-layout.json passes" || bad "panel-layout.json: $(cat "$T/check")"
 TSX_ICON_FILE="$COMMON/panel-app/usr/local/share/tsx/panel-app/icons.txt" python3 "$COMMON/panel-app/usr/local/bin/tsx-layout-check" "$HERE/esphome-lvgl/panel-layout.json" > "$T/check" 2>&1 \
 	&& ok "the example layout passes" || bad "esphome-lvgl/panel-layout.json: $(cat "$T/check")"
+
+echo "== apk repositories =="
+# The file of a new image (rootfs/mkrootfs.sh), then tsx-config apply at the
+# boot, with the board file of the xx50.
+mkdir -p "$T/root/etc/apk" "$T/root/etc/tsx"
+U=https://tsx-aports.unexceptional.net A=https://dl-cdn.alpinelinux.org/alpine/v3.24
+printf '# tsx-aports (tsx-config apply. panel.conf APK_URL)\n%s/v3.24/common\n%s/v3.24/xx50\n%s/main\n%s/community\n' "$U" "$U" "$A" "$A" > "$T/root/etc/apk/repositories"
+echo "$U" > "$T/root/etc/tsx/apk-url.default"
+grep -q 'echo "$TSX_APK_URL/$ALPINE/common"; echo "$TSX_APK_URL/$ALPINE/xx50"' "$HERE/rootfs/mkrootfs.sh" \
+	&& grep -q 'printf "%s\\n" "$TSX_APK_URL" > $T/etc/tsx/apk-url.default' "$HERE/rootfs/mkrootfs.sh" \
+	&& ok "mkrootfs.sh writes the repository block and the default URL" || bad "mkrootfs.sh repository block changed: update this test"
+tc() {
+	env TSX_BOARD_CONF="$OV/usr/local/lib/tsx/board.sh" TSX_MAC_DEV="$T/none" TSX_CONF="$T/panel.conf" TSX_RUN="$T/run" \
+		TSX_STATE_DIR="$T/root/var/lib/tsx" TSX_APPLY_PREFIX="$T/root" TSX_APPLY_ALLOW_NONROOT=1 \
+		sh "$COMMON/base/usr/local/sbin/tsx-config" "$@" >"$T/tc.log" 2>&1 || bad "tsx-config $*: $(cat "$T/tc.log")"
+}
+apply() { tc apply; }
+cfg() { tc "$@"; }
+cfg set PANEL_NAME TSS-752-TEST
+apply
+want="$U/v3.24/common
+$U/v3.24/xx50
+$A/main
+$A/community"
+[ "$(grep -v '^#' "$T/root/etc/apk/repositories")" = "$want" ] \
+	&& ok "default: tsx-aports common and xx50, then Alpine main and community" || bad "default repositories: $(cat "$T/root/etc/apk/repositories")"
+echo "$U/v3.24/xx60" >> "$T/root/etc/apk/repositories"
+apply
+grep -q '/xx60$' "$T/root/etc/apk/repositories" && bad "a line of another family stays" || ok "a line of another family goes"
+cfg set APK_URL https://mirror.example.org/tsx
+apply
+[ "$(grep -v '^#' "$T/root/etc/apk/repositories" | head -n 2 | tr '\n' ' ')" = "https://mirror.example.org/tsx/v3.24/common https://mirror.example.org/tsx/v3.24/xx50 " ] \
+	&& ok "APK_URL replaces the tsx-aports lines" || bad "APK_URL: $(cat "$T/root/etc/apk/repositories")"
+cfg unset APK_URL
+apply
+[ "$(grep -v '^#' "$T/root/etc/apk/repositories")" = "$want" ] && ok "no APK_URL: back to the public repositories" || bad "unset APK_URL: $(cat "$T/root/etc/apk/repositories")"
+
+echo "== tsx-autoupdate =="
+grep -q 'tsx-boot-ok tsx-autoupdate tsx-panel-app' "$HERE/rootfs/mkrootfs.sh" && ok "the image runs tsx-autoupdate in the default runlevel" || bad "tsx-autoupdate not in the default runlevel of the image"
+needs() { TSX_BOARD_CONF="$OV/usr/local/lib/tsx/board.sh" sh "$COMMON/autoupdate/usr/local/sbin/tsx-autoupdate" __needs_reboot "$1"; }
+for p in tsx-xx50-kernel-lts tsx-xx50-board tsx-xx50-panel-app tsx-panel-app tsx-autoupdate; do
+	needs "$p" && ok "$p needs a reboot" || bad "$p needs no reboot"
+done
+needs tsx-xx60-kernel-lts && bad "the kernel package of another family needs a reboot" || ok "the kernel package of another family needs no reboot"
 
 echo "== $N passed, $F failed"
 [ "$F" = 0 ]

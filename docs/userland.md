@@ -11,6 +11,7 @@ how to set it up and what an update keeps.
 |---|---|---|
 | tsx-base | tsx-linux-common `base/` | `tsx-config`, the boot services (`tsx-setup`, `tsx-hostname`, `tsx-data`, `tsx-config`), the clock, the console banner |
 | tsx-setup | tsx-linux-common `setup/` | The setup page `tsx-setupd` and its root helper |
+| tsx-autoupdate | tsx-linux-common `autoupdate/` | The automatic update (see "Automatic update"). tsx-xx50-board depends on it. |
 | tsx-panel-app | tsx-linux-common `panel-app/` | The service `tsx-panel-app`, the layout checker, the layout editor of the setup page |
 | tsx-xx50-board | this repo, `rootfs/overlay` | The board layer (see below) |
 | tsx-xx50-panel-app | this repo, `esphome-lvgl/` | The panel app program for the xx50 |
@@ -63,6 +64,53 @@ image also writes an empty p3.
 
 A card with no p3 also works. Then `tsx-data` does nothing, and the state
 stays on p2.
+
+## Automatic update
+
+The panel installs its package updates by itself with `tsx-autoupdate` of
+tsx-linux-common (its docs/autoupdate.md). The xx50 uses the defaults of
+`/etc/tsx/autoupdate.conf`:
+
+| Setting | Value |
+|---|---|
+| Window | `WINDOW=03:00-05:00`, the local time of the panel (`TZ_NAME` of `panel.conf`, else UTC) |
+| Reboot | `REBOOT=auto`: a reboot inside the window when the update needs one |
+| Check | Every 15 minutes (`crond`) |
+
+The update installs only while the screen is off. The panel app writes the
+screen state for it (`/run/tsx-idled.state`). After `BLANK_TIMEOUT` (300 s
+by default) with no touch, the screen goes off and the update can start.
+
+An update of tsx-xx50-board, tsx-xx50-panel-app, tsx-xx50-kernel-lts or
+another `tsx-*` package needs a reboot. After the reboot, `tsx-autoupdate`
+checks the panel app: the service runs, the app drew its first frame and,
+if it had Home Assistant before the reboot, it connected again. The result
+is in `tsx-autoupdate status` ("health") and in `/var/log/tsx-autoupdate.log`.
+
+A kernel update writes only the normal kernel slots. `tsx-boot-ok` marks
+each good boot. The golden slots keep the old kernel until you run
+`tsx-kernel-slots promote` (see "Kernel package").
+
+To install at once, run `tsx-autoupdate now`. The window still controls the
+reboot. To stop the automatic updates, set `ENABLED=0` in
+`/etc/tsx/autoupdate.conf` and run `rc-service tsx-autoupdate restart`.
+
+A panel with tsx-xx50-board 0.3.1 or older has no automatic update. Run
+`apk upgrade` one time, then reboot. The reboot starts the service.
+
+### Repositories
+
+`/etc/apk/repositories` of a new image lists the public tsx-aports
+repositories `common` and `xx50`, then Alpine `main` and `community`.
+`tsx-config apply` writes the tsx-aports lines at each boot from
+`APK_URL` of `panel.conf`:
+
+- No `APK_URL`: `https://tsx-aports.unexceptional.net`.
+- `APK_URL=<url>`: a mirror or a local folder with the same tree.
+- `APK_URL=off`: no tsx-aports lines.
+
+`tsx-config apply` keeps the Alpine lines and every other line that you
+added. Remove a test repository line by hand when you do not need it.
 
 ## Update a card
 

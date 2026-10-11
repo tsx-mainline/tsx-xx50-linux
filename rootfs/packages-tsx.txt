@@ -3,6 +3,7 @@
 tsx-keys
 tsx-base
 tsx-setup
+tsx-autoupdate
 tsx-xx50-board
 tsx-panel-app
 tsx-xx50-panel-app
