@@ -36,8 +36,14 @@
  *   - the FAT partition (p1, TSXLOG) holds a file RESCUE or RESCUE.TXT (any
  *     case). The program deletes the file, so the next boot is normal. A line
  *     tsx.ip=A.B.C.D/NN[,GW] in the file gives the rescue a static address,
- *   - a finger is on the touch screen when the splash shows, and stays there
- *     for HOLD_S seconds,
+ *   - a finger touches the screen while the splash shows "touch and hold for
+ *     the rescue system" (TOUCH_WAIT_MS, 1.5 s) and stays there for HOLD_S
+ *     seconds (a count-down on the splash). The FT5x06 driver resets the
+ *     touch controller when it starts, and the controller then ignores a
+ *     finger that is already on the screen. So a finger that touches the
+ *     screen before the splash shows does not count. Each boot waits for
+ *     TOUCH_WAIT_MS at the splash. There is no wait with tsx.verbose or
+ *     without a touch screen,
  *   - tsx.rescue is on the kernel command line,
  *   - /etc/tsx/force-rescue is on the root file system (tsx-boot-rescue). The
  *     program deletes it, so the next boot is normal,
@@ -64,6 +70,13 @@
  *                                       FILE, default 0) and unpack it to DIR
  *   tsx-xx50-init --flag DIR            look for the RESCUE file in DIR (it
  *                                       is deleted) and print its content
+ *   tsx-xx50-init --touch SPEC          run the touch trigger with a fake
+ *                                       touch screen and print the result and
+ *                                       the time: SPEC "none" (no touch
+ *                                       screen), "-" (no touch), "D" (a finger
+ *                                       from D ms on) or "D-U" (a finger from
+ *                                       D ms to U ms), from the start of the
+ *                                       wait
  */
 #define _GNU_SOURCE
 #include <ctype.h>
@@ -96,6 +109,7 @@
 #define RESCUE_HDR 512
 #define RESCUE_MAX_UNPACKED (64 << 20)
 #define HOLD_S 3
+#define TOUCH_WAIT_MS 1500
 
 static char cmdline[4096];
 static int test_mode;
@@ -478,56 +492,93 @@ static int tsxlog_flag(const char *disk, char *args, size_t alen)
 
 #define BIT(a, n) ((a)[(n) / 8] & (1 << ((n) % 8)))
 
-/* 1 if a touch screen reports a finger right now. Keep its fd in *tfd. */
-static int touch_down(int *tfd)
+/* Test mode (--touch): the fake touch screen SPEC and the start of the wait. */
+static const char *touch_sim;
+static double touch_t0;
+
+/* The touch screen: the first event device with BTN_TOUCH and an X axis.
+ * Return its fd, or -1. */
+static int touch_open(void)
+{
+	DIR *d;
+	struct dirent *e;
+	int tfd = -1;
+
+	if (touch_sim)
+		return strcmp(touch_sim, "none") ? 0 : -1;
+	d = opendir("/dev/input");
+	if (!d)
+		return -1;
+	while ((e = readdir(d)) && tfd < 0) {
+		unsigned char keys[KEY_MAX / 8 + 1], abs[ABS_MAX / 8 + 1];
+		char p[300];
+		int fd;
+
+		if (strncmp(e->d_name, "event", 5))
+			continue;
+		snprintf(p, sizeof(p), "/dev/input/%s", e->d_name);
+		fd = open(p, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+		if (fd < 0)
+			continue;
+		memset(keys, 0, sizeof(keys));
+		memset(abs, 0, sizeof(abs));
+		if (ioctl(fd, EVIOCGBIT(EV_KEY, sizeof(keys)), keys) >= 0 &&
+		    ioctl(fd, EVIOCGBIT(EV_ABS, sizeof(abs)), abs) >= 0 &&
+		    BIT(keys, BTN_TOUCH) && (BIT(abs, ABS_X) || BIT(abs, ABS_MT_POSITION_X)))
+			tfd = fd;
+		else
+			close(fd);
+	}
+	closedir(d);
+	return tfd;
+}
+
+/* 1 if the touch screen reports a finger right now. */
+static int touch_down(int tfd)
 {
 	unsigned char keys[KEY_MAX / 8 + 1];
 
-	if (*tfd < 0) {
-		DIR *d = opendir("/dev/input");
-		struct dirent *e;
+	if (touch_sim) {
+		long t = (long)((now() - touch_t0) * 1000), down = -1, up = -1;
 
-		if (!d)
+		if (sscanf(touch_sim, "%ld-%ld", &down, &up) < 1)
 			return 0;
-		while ((e = readdir(d)) && *tfd < 0) {
-			unsigned char abs[ABS_MAX / 8 + 1];
-			char p[300];
-			int fd;
-
-			if (strncmp(e->d_name, "event", 5))
-				continue;
-			snprintf(p, sizeof(p), "/dev/input/%s", e->d_name);
-			fd = open(p, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
-			if (fd < 0)
-				continue;
-			memset(keys, 0, sizeof(keys));
-			memset(abs, 0, sizeof(abs));
-			if (ioctl(fd, EVIOCGBIT(EV_KEY, sizeof(keys)), keys) >= 0 &&
-			    ioctl(fd, EVIOCGBIT(EV_ABS, sizeof(abs)), abs) >= 0 &&
-			    BIT(keys, BTN_TOUCH) && (BIT(abs, ABS_X) || BIT(abs, ABS_MT_POSITION_X)))
-				*tfd = fd;
-			else
-				close(fd);
-		}
-		closedir(d);
-		if (*tfd < 0)
-			return 0;
+		return t >= down && (up < 0 || t < up);
 	}
 	memset(keys, 0, sizeof(keys));
-	if (ioctl(*tfd, EVIOCGKEY(sizeof(keys)), keys) < 0)
+	if (ioctl(tfd, EVIOCGKEY(sizeof(keys)), keys) < 0)
 		return 0;
 	return !!BIT(keys, BTN_TOUCH);
 }
 
-/* A finger on the screen now: show a count-down and return 1 if it stays
- * there for HOLD_S seconds. */
+/*
+ * The touch trigger. Show a hint on the splash and wait TOUCH_WAIT_MS for a
+ * finger on the screen. The controller does not report a finger that was on
+ * the screen before the driver reset it, so the finger must come during the
+ * wait. Then show a count-down and return 1 if the finger stays there for
+ * HOLD_S seconds. Return 0 at once when there is no touch screen.
+ */
 static int touch_held(void)
 {
-	int tfd = -1, ok = 0;
+	int tfd = touch_open(), ok = 0;
 	double end;
 
-	if (test_mode || !touch_down(&tfd))
-		goto out;
+	if (tfd < 0) {
+		msg("no touch screen: no touch check");
+		return 0;
+	}
+	splash("touch and hold for the rescue system", "status");
+	touch_t0 = now();
+	end = touch_t0 + TOUCH_WAIT_MS / 1000.0;
+	msg("touch and hold for the rescue system: wait %d ms for a touch", TOUCH_WAIT_MS);
+	while (!touch_down(tfd)) {
+		if (now() >= end) {
+			msg("no touch: normal start");
+			splash("starting", "status");
+			goto out;
+		}
+		nap(50);
+	}
 	msg("finger on the screen: hold %d s for the rescue system", HOLD_S);
 	end = now() + HOLD_S;
 	for (;;) {
@@ -541,14 +592,14 @@ static int touch_held(void)
 		snprintf(s, sizeof(s), "hold for the rescue system: %d", (int)left + 1);
 		splash(s, "status");
 		nap(100);
-		if (!touch_down(&tfd)) {
+		if (!touch_down(tfd)) {
 			msg("finger lifted: normal start");
 			splash("starting", "status");
 			break;
 		}
 	}
 out:
-	if (tfd >= 0)
+	if (tfd >= 0 && !touch_sim)
 		close(tfd);
 	return ok;
 }
@@ -920,6 +971,15 @@ static int test_main(int argc, char **argv)
 		printf("flag: found\n%s", args);
 		return 0;
 	}
+	if (argc == 3 && !strcmp(argv[1], "--touch")) {
+		double t0 = now();
+		int r;
+
+		touch_sim = argv[2];
+		r = touch_held();
+		printf("touch: %s after %.2f s\n", r ? "rescue" : "normal start", now() - t0);
+		return r ? 0 : 1;
+	}
 	return -1;
 }
 
@@ -1011,7 +1071,7 @@ int main(int argc, char **argv)
 		rescue(disk, "requested on the kernel command line", NULL);
 	if (tsxlog_flag(disk, args, sizeof(args)))
 		rescue(disk, "the file RESCUE was on the TSXLOG partition (it is deleted, the next boot is normal)", args);
-	if (!verbose && touch_held())
+	if (!verbose && !test_mode && touch_held())
 		rescue(disk, "a finger was held on the screen at boot", NULL);
 
 	/* Mount the device node of the partition, as the kernel does. */

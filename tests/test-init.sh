@@ -10,6 +10,9 @@
 #  - --rescue at an offset of a card file (0x300000)
 #  - --flag: RESCUE / RESCUE.TXT on the FAT partition, any case, is found,
 #    read and deleted; other names are not
+#  - --touch: the touch trigger with a fake touch screen and real time: the
+#    1.5 s wait for a touch, the 3 s count-down, a lift, a touch after the
+#    wait and no touch screen (no wait)
 #  - with RESCUE_IMG=<tsx-xx50-rescue.img>: the real rescue system unpacks
 #    and has /sbin/init, the rcS and the rescue screen
 #
@@ -110,6 +113,28 @@ echo "$out" | grep -q '^flag: found' && echo "$out" | grep -q 'tsx.ip=192.0.2.10
 /t/init --flag /t/fat > /dev/null && [ ! -e /t/fat/RESCUE ] && ok "an empty RESCUE file counts" || bad "RESCUE without extension"
 echo x > /t/fat/rescue.cfg
 /t/init --flag /t/fat > /dev/null && bad "rescue.cfg counted" || ok "other names do not count"
+
+echo "== touch trigger (1.5 s wait, 3 s hold, real time)"
+# tcase SPEC WANT MIN MAX: the result is WANT after MIN..MAX seconds.
+tcase() {
+	out=$(/t/init --touch "$1"); r=$(echo "$out" | sed -n 's/^touch: \(.*\) after \([0-9.]*\) s$/\1 \2/p')
+	t=${r##* }; res=${r% *}
+	if [ "$res" = "$2" ] && awk -v t="$t" -v a="$3" -v b="$4" 'BEGIN { exit !(t >= a && t <= b) }'; then
+		ok "touch $1: $res after $t s"
+	else
+		bad "touch $1: want $2 in $3..$4 s, got: $(echo "$out" | tr '\n' '|')"
+	fi
+}
+tcase none "normal start" 0 0.2
+/t/init --touch none | grep -q 'no touch screen' && ok "no touch screen: no wait, a log line" || bad "no log line without a touch screen"
+tcase - "normal start" 1.45 1.9
+/t/init --touch - | grep -q 'no touch: normal start' && ok "no touch: log line" || bad "no log line for no touch"
+tcase 0 rescue 2.95 3.5
+tcase 800 rescue 3.75 4.3
+tcase 1400 rescue 4.35 4.9
+tcase 800-2000 "normal start" 1.95 2.5
+/t/init --touch 800-2000 | grep -q 'finger lifted: normal start' && ok "lift: log line" || bad "no log line for the lift"
+tcase 1700 "normal start" 1.45 1.9
 
 if [ -s /t/real-rescue.img ]; then
 	echo "== the real rescue system"

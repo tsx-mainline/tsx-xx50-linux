@@ -20,7 +20,7 @@ The rescue system uses the kernel of the slots that U-Boot booted. It needs no k
 | `tsx-boot-rescue` | Run it on the running panel. It writes `/etc/tsx/force-rescue` on the root file system and reboots. The ramdisk deletes the file. | Normal |
 | `tsx-boot-rescue --golden` | Run it on the running panel. It sets `boot_retry=10` in the U-Boot env and reboots. U-Boot then boots the golden slots, as after two failed boots. Use it to test the fallback path. | The rescue system again, as after two failed boots. Use `tsx-boot-mainline` |
 | A `RESCUE` file on TSXLOG | Put a file with the name `RESCUE` or `RESCUE.TXT` (any case) on the FAT partition of the card with a PC. The ramdisk deletes the file. Use it when the panel has no network or no ssh login. | Normal |
-| A finger on the screen | Touch the screen when the Crestron logo shows. Hold the finger until the rescue screen shows. | Normal |
+| A finger on the screen | When the boot splash shows, touch the middle of the screen and hold it for 3 s. | Normal |
 | No usable root file system | Automatic. The root partition is missing, does not mount or has no `/sbin/init`. | The same check again |
 
 The panel has no reset pinhole. The button on the back is a hard reset. So the `RESCUE` file and the finger on the screen are the triggers that need no network. The running panel can also write the file: `touch /mnt/tsxlog/RESCUE.TXT`, then `reboot`.
@@ -41,11 +41,14 @@ The panel has no reset pinhole. The button on the back is a hard reset. So the `
 ### Start the rescue system with a finger on the screen
 
 1. Power on the panel, or press the button on the back.
-2. Touch the middle of the screen when the Crestron logo shows.
-3. Hold the finger on the screen. The splash shows `hold for the rescue system: 3`, then 2 and 1.
-4. Lift the finger when the rescue screen shows.
+2. Wait for the boot splash (Tux and "TSX-LINUX"). The Crestron logo of U-Boot shows first. Do not touch the screen yet.
+3. When the splash shows `touch and hold for the rescue system`, touch the middle of the screen.
+4. Hold the finger on the screen for 3 s. The splash shows `hold for the rescue system: 3`, then 2 and 1.
+5. Lift the finger when the rescue screen shows.
 
-If you lift the finger before the count ends, the panel starts normally. The touch keys right of the screen do not count.
+The splash shows the text of step 3 for 1.5 s. If no touch comes in this time, the panel starts normally. If you lift the finger before the count ends, the panel starts normally.
+
+A finger that is on the screen before the splash shows does not count. The touch controller starts again when its driver starts, and it ignores a finger that is already on the screen. So touch the screen only when the text shows. The touch keys right of the screen do not count.
 
 ## The rescue screen
 
@@ -162,7 +165,7 @@ The ramdisk program (`image/initramfs/tsx-xx50-init.c`) checks the triggers in t
 2. `golden=1` in the U-Boot env (with a valid CRC): rescue.
 3. `tsx.rescue` on the kernel command line: rescue. The kernel uses its own command line, so only a test kernel can set it.
 4. A `RESCUE` or `RESCUE.TXT` file on p1: rescue. The file is deleted.
-5. A finger on the screen at the splash, held for 3 s: rescue.
+5. A touch on the screen while the splash shows `touch and hold for the rescue system` (1.5 s), held for 3 s: rescue. Each boot waits these 1.5 s. There is no wait with `tsx.verbose` or without a touch screen.
 6. The root file system does not mount: rescue.
 7. `/etc/tsx/force-rescue` on the root file system: rescue. The file is deleted.
 8. No `/sbin/init` on the root file system: rescue.

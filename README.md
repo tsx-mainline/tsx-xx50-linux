@@ -27,7 +27,7 @@ firmware, put the stock SD card back in the panel.
 | Audio capture | The digital microphone, tested at 16 kHz. No voice service uses it. |
 | Panel app | Home Assistant cards, the settings overlay, screen dim and off, the light bars and the keys as Home Assistant entities. |
 | Setup page | Pairing code on the screen, the panel settings, the layout editor. |
-| Rescue system | Starts after two failed boots, from `tsx-boot-rescue`, from a `RESCUE` file on TSXLOG or with a finger on the screen at boot. ssh login, repair tools, backup of the panel data. See [docs/recovery.md](docs/recovery.md). |
+| Rescue system | Starts after two failed boots, from `tsx-boot-rescue`, from a `RESCUE` file on TSXLOG or with a touch held for 3 s at the boot splash. ssh login, repair tools, backup of the panel data. See [docs/recovery.md](docs/recovery.md). |
 | Updates | Automatic package updates from the TSX package repository (`tsx-autoupdate`, 03:00 to 05:00, only with the screen off). `image/update-card.sh` for a new image on a card that keeps its data. |
 
 The hardware details are in [docs/hardware.md](docs/hardware.md). The

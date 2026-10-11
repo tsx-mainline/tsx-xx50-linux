@@ -50,14 +50,15 @@ first frame, so no black frame shows between the splash and the cards.
 | The display driver registers `fb0` | 1.3 s |
 | The kernel starts `/init` of the ramdisk | 1.45 s |
 | The splash is on `fb0` | 1.6 s |
-| `/init` starts `/sbin/init` of the root partition | 1.7 s |
-| The panel app starts | 18.5 to 18.9 s |
+| `/init` waits for a touch (the rescue trigger) | 1.7 to 3.2 s |
+| `/init` starts `/sbin/init` of the root partition | 3.2 s |
+| The panel app starts | about 20 s |
 | The first frame of the panel app | 0.5 s after the start of the app |
 
-The ramdisk is 85 KB of the 384 KiB slot: `/init` (static, 50 KB),
-`tsx-splash` (static, 50 KB), the 800x480 frame and one font. `/init` finds
-`root=PARTUUID=7458a050-02` by the disk id in the MBR, mounts it as the
-kernel does, and starts `/sbin/init` there.
+The ramdisk is 107 KB of the 384 KiB slot: `/init` (static, with zlib,
+83 KB), `tsx-splash` (static, 50 KB), the 800x480 frame and one font.
+`/init` finds `root=PARTUUID=7458a050-02` by the disk id in the MBR, mounts
+it as the kernel does, and starts `/sbin/init` there.
 
 Text console in place of the splash: set `BOOT_VERBOSE=1` in `panel.conf`
 (`tsx-config set BOOT_VERBOSE 1`, then `tsx-config apply`). `/init` then
@@ -72,10 +73,14 @@ After two failed boots, U-Boot boots the golden slots, and `/init` starts the
 rescue system (see [recovery.md](recovery.md)).
 
 `/init` also starts the rescue system on a `RESCUE` file on TSXLOG,
-`/etc/tsx/force-rescue` (`tsx-boot-rescue`) and a finger that stays on the
-screen for 3 s at the splash. It reads the touch state once at the splash
-(`EVIOCGKEY`, `BTN_TOUCH`), so the check costs no time without a finger.
-The program links zlib for the rescue archive. The ramdisk is about 105 KB.
+`/etc/tsx/force-rescue` (`tsx-boot-rescue`) and a touch held for 3 s at the
+splash. The FT5x06 driver resets the touch controller when it starts, at
+about 1.1 s. The controller then ignores a finger that is already on the
+screen. So `/init` shows `touch and hold for the rescue system` on the splash
+and waits 1.5 s for a new touch (`EVIOCGKEY`, `BTN_TOUCH`, every 50 ms).
+Each boot is 1.5 s longer for this wait. There is no wait with
+`tsx.verbose` or without a touch screen. The program links zlib for the
+rescue archive. The ramdisk is about 107 KB.
 
 ## Touch
 
