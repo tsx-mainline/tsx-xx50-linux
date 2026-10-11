@@ -122,19 +122,25 @@ runs. The script keeps the data partition. The steps are in
 ## Setup page
 
 The setup page is `http://<panel address>:8080/setup`. It works from a phone
-or a PC on the same network, with a pairing code from the panel screen:
+or a PC on the same network. There are two logins:
 
-1. Push the `power` key (the top key) of the panel, or tap the screen with
-   five fingers. The settings overlay opens. Tap "Open setup". The setup
-   window opens for 15 minutes. Over ssh, `tsx-config setup` does the
-   same.
-2. Read the address and the code in the bar at the top of the panel screen.
-3. Open the address in a browser and type the code.
+- **Log in with Home Assistant**: an administrator of Home Assistant opens
+  the page at any time, with no code. The panel needs the URL of its Home
+  Assistant for this: the field "Home Assistant URL for the login on this
+  page" (`HA_URL`). Set it once with the pairing code.
+- The pairing code from the panel screen:
+  1. Push the `power` key (the top key) of the panel, or tap the screen with
+     five fingers. The settings overlay opens. Tap "Open setup". The pairing
+     code works for 15 minutes. Over ssh, `tsx-config setup` does the same.
+  2. Read the address and the code in the bar at the top of the panel screen.
+  3. Open the address in a browser and type the code.
 
-A new panel has no settings. Until the first save, the setup page is open
+A new panel has no settings. Until the first save, the pairing code works
 with no key push. The setup page sets these values: the API encryption key
-of the panel app, the panel name, the time zone, the ssh key for root and
-the layout (the layout editor).
+of the panel app, the Home Assistant URL for the login, the panel name, the
+time zone, the ssh key for root and the layout (the layout editor). Its
+Panel section has live controls: the screen, the brightness, the dim and off
+times and the light bars. See `docs/setup.md` of tsx-linux-common.
 
 ## Panel app
 
@@ -166,6 +172,13 @@ The device has these entities in Home Assistant:
 | Backlight | The brightness, 1 to 100 %. |
 | Blank timeout, Dim timeout, Dim level | The screen settings (`BLANK_TIMEOUT`, `DIM_TIMEOUT`, `DIM_LEVEL` of `panel.conf`). |
 | Key power, Key home, Key lights, Key up, Key down | The keys: the event types `press` and `long` (0.8 s). |
+| Layout hash | The SHA-256 of the layout file in use. |
+
+The device also has two actions: `esphome.<device>_set_layout` (a layout as
+JSON text: the panel checks it, saves it and shows it) and
+`esphome.<device>_get_layout` (the layout in use, as an answer of the
+action). See "Layout from Home Assistant" in `docs/panel-app.md` of
+tsx-linux-common.
 
 Home Assistant can change the lights, the screen and the numbers. The
 device setting "Allow the device to perform Home Assistant actions" controls
