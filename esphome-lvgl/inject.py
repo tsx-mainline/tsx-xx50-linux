@@ -6,7 +6,12 @@ every reader of the node). For the LVGL demo only, never with real controls.
   inject.py hold X Y [MS]       one touch at X,Y held MS ms (default 800)
   inject.py mtap N X Y [MS]     a tap with N fingers (multi-touch slots 0..N-1, 60 px
                                 apart from X,Y), all down for MS ms (150)
-  inject.py drag X1 Y1 X2 Y2 [MS]  like swipe, with a hold of MS ms at the end
+  inject.py drag X1 Y1 X2 Y2 [MS [STEPS [STEP_MS]]]
+                                one touch from X1,Y1 to X2,Y2 in STEPS moves (15) of
+                                STEP_MS ms (20), then a hold of MS ms (0) before the lift
+  inject.py mdrag X1 Y1 X2 Y2 [MS [STEPS [STEP_MS]]]
+                                the same drag, and a second finger comes down 200 px
+                                right of and 150 px below X1,Y1 in the middle of it
   inject.py swipe X1 Y1 X2 Y2   one touch drag from X1,Y1 to X2,Y2 in 0.3 s
   inject.py abs                 print the X/Y ranges of the node
 DEV=/dev/input/event0 by default."""
@@ -80,6 +85,31 @@ elif cmd in ("hold", "mtap"):
             ev(fd, EV_KEY, BTN_TOUCH, 0)
         syn(fd)
     ev(fd, EV_ABS, ABS_MT_SLOT, 0); syn(fd)
+elif cmd in ("drag", "mdrag"):
+    x1, y1, x2, y2 = (int(a) for a in sys.argv[2:6])
+    hold = int(sys.argv[6]) if len(sys.argv) > 6 else 0
+    steps = max(1, int(sys.argv[7])) if len(sys.argv) > 7 else 15
+    step_ms = int(sys.argv[8]) if len(sys.argv) > 8 else 20
+    mx, my = absinfo(fd, ABS_MT_X)[2], absinfo(fd, ABS_MT_Y)[2]
+    second = False
+    ev(fd, EV_ABS, ABS_MT_SLOT, 0); ev(fd, EV_ABS, ABS_MT_TID, 4244)
+    for i in range(steps + 1):
+        x = (x1 + (x2 - x1) * i // steps) * mx // 799
+        y = (y1 + (y2 - y1) * i // steps) * my // 479
+        ev(fd, EV_ABS, ABS_MT_SLOT, 0); ev(fd, EV_ABS, ABS_MT_X, x); ev(fd, EV_ABS, ABS_MT_Y, y)
+        if i == 0:
+            ev(fd, EV_KEY, BTN_TOUCH, 1)
+        if cmd == "mdrag" and not second and i == steps // 2:
+            second = True
+            ev(fd, EV_ABS, ABS_MT_SLOT, 1); ev(fd, EV_ABS, ABS_MT_TID, 4245)
+            ev(fd, EV_ABS, ABS_MT_X, min(799, x1 + 200) * mx // 799)
+            ev(fd, EV_ABS, ABS_MT_Y, min(479, y1 + 150) * my // 479)
+        ev(fd, EV_ABS, ABS_X, x); ev(fd, EV_ABS, ABS_Y, y); syn(fd)
+        time.sleep(step_ms / 1000)
+    time.sleep(hold / 1000)
+    if second:
+        ev(fd, EV_ABS, ABS_MT_SLOT, 1); ev(fd, EV_ABS, ABS_MT_TID, -1); syn(fd)
+    ev(fd, EV_ABS, ABS_MT_SLOT, 0); ev(fd, EV_ABS, ABS_MT_TID, -1); ev(fd, EV_KEY, BTN_TOUCH, 0); syn(fd)
 elif cmd == "swipe":
     x1, y1, x2, y2 = (int(a) for a in sys.argv[2:6])
     mx, my = absinfo(fd, ABS_MT_X)[2], absinfo(fd, ABS_MT_Y)[2]
