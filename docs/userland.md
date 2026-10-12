@@ -146,7 +146,9 @@ The Home Assistant version of the panel is the version of `tsx-xx50-board`,
 for example `0.3.6`. An update of tsx-xx50-board, tsx-xx50-panel-app,
 tsx-xx50-kernel-lts or another `tsx-*` package needs a restart. With
 `AUTO_RESTART=off`, Home Assistant shows "Restart required" until the panel
-restarts. After the restart, `tsx-autoupdate`
+restarts. In the meantime the Update entity stays in the list of updates. Its
+title says "Restart required to finish" and the new release, and the latest
+version has the text "(restart required)". After the restart, `tsx-autoupdate`
 checks the panel app: the service runs, the app drew its first frame and,
 if it had Home Assistant before the restart, it connected again. The result
 is in `tsx-autoupdate status` ("health") and in `/var/log/tsx-autoupdate.log`.
