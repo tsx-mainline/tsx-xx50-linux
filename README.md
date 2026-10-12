@@ -28,7 +28,7 @@ firmware, put the stock SD card back in the panel.
 | Panel app | Home Assistant cards, the settings overlay, screen dim and off, the light bars and the keys as Home Assistant entities. |
 | Setup page | Log in with Home Assistant or the pairing code on the screen, the panel settings, live screen and light controls, the layout editor. |
 | Rescue system | Starts after two failed boots, from `tsx-boot-rescue`, from a `RESCUE` file on TSXLOG or with a touch held for 3 s at the boot splash. ssh login, repair tools, backup of the panel data. See [docs/recovery.md](docs/recovery.md). |
-| Updates | Automatic package updates from the TSX package repository (`tsx-autoupdate`, 03:00 to 05:00, only with the screen off). `image/update-card.sh` for a new image on a card that keeps its data. |
+| Updates | Automatic package updates from the TSX package repository (`tsx-autoupdate`: automatic mode 03:00 to 05:00 with the screen off, or manual mode with Install in Home Assistant). `image/update-card.sh` for a new image on a card that keeps its data. |
 
 The hardware details are in [docs/hardware.md](docs/hardware.md). The
 models and their status are in [docs/compatibility.md](docs/compatibility.md).

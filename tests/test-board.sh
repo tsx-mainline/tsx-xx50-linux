@@ -92,7 +92,7 @@ echo "== tsx-autoupdate =="
 grep -q 'tsx-boot-ok tsx-autoupdate tsx-panel-app' "$HERE/rootfs/mkrootfs.sh" && ok "the image runs tsx-autoupdate in the default runlevel" || bad "tsx-autoupdate not in the default runlevel of the image"
 needs() { TSX_BOARD_CONF="$OV/usr/local/lib/tsx/board.sh" sh "$COMMON/autoupdate/usr/local/sbin/tsx-autoupdate" __needs_reboot "$1"; }
 for p in tsx-xx50-kernel-lts tsx-xx50-board tsx-xx50-panel-app tsx-panel-app tsx-autoupdate; do
-	needs "$p" && ok "$p needs a reboot" || bad "$p needs no reboot"
+	needs "$p" && ok "$p needs a restart" || bad "$p needs no restart"
 done
 needs tsx-xx60-kernel-lts && bad "the kernel package of another family needs a reboot" || ok "the kernel package of another family needs no reboot"
 

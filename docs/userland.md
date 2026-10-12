@@ -122,33 +122,42 @@ stays on p2.
 
 ## Automatic update
 
-The panel installs its package updates by itself with `tsx-autoupdate` of
+The panel checks for package updates with `tsx-autoupdate` of
 tsx-linux-common (its docs/autoupdate.md). The xx50 uses the defaults of
 `/etc/tsx/autoupdate.conf`:
 
 | Setting | Value |
 |---|---|
+| Mode | `MODE=auto`: the panel installs inside the window. `manual` only shows the update in Home Assistant. |
 | Window | `WINDOW=03:00-05:00`, the local time of the panel (`TZ_NAME` of `panel.conf`, else UTC) |
-| Reboot | `REBOOT=auto`: a reboot inside the window when the update needs one |
-| Check | Every 15 minutes (`crond`) |
+| Restart | `AUTO_RESTART=on`: a restart right after an install that needs one |
+| Check | Every 15 minutes (`crond`), in both modes |
 
-The update installs only while the screen is off. The panel app writes the
-screen state for it (`/run/tsx-idled.state`). After `BLANK_TIMEOUT` (300 s
+The Home Assistant select "Update mode" and switch "Automatic restart" and
+the Panel section of the setup page change the mode and the restart. They
+save `UPDATE_MODE` and `UPDATE_AUTO_RESTART` in `panel.conf`, which win over
+the file.
+
+An automatic install runs only while the screen is off. The panel app writes
+the screen state for it (`/run/tsx-idled.state`). After `BLANK_TIMEOUT` (300 s
 by default) with no touch, the screen goes off and the update can start.
 
-An update of tsx-xx50-board, tsx-xx50-panel-app, tsx-xx50-kernel-lts or
-another `tsx-*` package needs a reboot. After the reboot, `tsx-autoupdate`
+The Home Assistant version of the panel is the version of `tsx-xx50-board`,
+for example `0.3.6`. An update of tsx-xx50-board, tsx-xx50-panel-app,
+tsx-xx50-kernel-lts or another `tsx-*` package needs a restart. With
+`AUTO_RESTART=off`, Home Assistant shows "Restart required" until the panel
+restarts. After the restart, `tsx-autoupdate`
 checks the panel app: the service runs, the app drew its first frame and,
-if it had Home Assistant before the reboot, it connected again. The result
+if it had Home Assistant before the restart, it connected again. The result
 is in `tsx-autoupdate status` ("health") and in `/var/log/tsx-autoupdate.log`.
 
 A kernel update writes only the normal kernel slots. `tsx-boot-ok` marks
 each good boot. The golden slots keep the old kernel until you run
 `tsx-kernel-slots promote` (see "Kernel package").
 
-To install at once, run `tsx-autoupdate now`. The window still controls the
-reboot. To stop the automatic updates, set `ENABLED=0` in
-`/etc/tsx/autoupdate.conf` and run `rc-service tsx-autoupdate restart`.
+To install at once, use Install in Home Assistant or run
+`tsx-autoupdate now`. Both ignore the window and the mode. To stop the
+automatic installs, set the mode to `manual`.
 
 A panel with tsx-xx50-board 0.3.1 or older has no automatic update. Run
 `apk upgrade` one time, then reboot. The reboot starts the service.
@@ -227,6 +236,11 @@ The device has these entities in Home Assistant:
 | Blank timeout, Dim timeout, Dim level | The screen settings (`BLANK_TIMEOUT`, `DIM_TIMEOUT`, `DIM_LEVEL` of `panel.conf`). |
 | Key power, Key home, Key lights, Key up, Key down | The keys: the event types `press` and `long` (0.8 s). |
 | Layout hash | The SHA-256 of the layout file in use. |
+| Update | The update of the panel packages. Install installs at once. |
+| Restart required | On while an installed update waits for a restart. |
+| Restart | A button that restarts the panel. |
+| Update mode | A select: `auto` or `manual` (`UPDATE_MODE` of `panel.conf`). |
+| Automatic restart | A switch (`UPDATE_AUTO_RESTART` of `panel.conf`). |
 
 The device also has two actions: `esphome.<device>_set_layout` (a layout as
 JSON text: the panel checks it, saves it and shows it) and
