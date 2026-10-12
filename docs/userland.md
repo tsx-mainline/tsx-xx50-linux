@@ -37,6 +37,7 @@ the panel.
 | `/etc/init.d/tsx-boot-ok`, `/usr/local/sbin/tsx-boot-ok` | 60 s after the start of the default runlevel, if the panel app or sshd runs: sets `boot_retry=8` and `golden_boot_retry=0` in the U-Boot env after a boot from the normal slots. It writes only when a value differs, and it checks the CRC and all other variables after the write. The result is in the system log (`tsx-boot-ok`). `tsx-boot-ok --status` shows the counters |
 | `/etc/conf.d/watchdog` | busybox watchdog on the SoC watchdog, 60 s |
 | `/etc/modules-load.d/tsx-xx50.conf` | Loads the GPU module `msm` |
+| `/etc/modprobe.d/tsx-xx50-audio.conf` | Loads the speaker amplifier driver before the codec driver, so the amplifier is off when the codec starts (see "Speaker pops" in [hardware.md](hardware.md)) |
 | `/etc/securetty` | The Alpine list plus `ttymxc0` |
 | `/etc/tsx/buttons-board.conf` | The five touch keys (names `power`, `home`, `lights`, `up`, `down`) |
 | `/etc/tsx/panel-app-board.conf` | The environment of the panel app (the display is `tsx_drm` on card0, the touch and keys `tsx_evdev`) and the device file that it waits for |
@@ -54,6 +55,8 @@ The panel has one volume. The setup page (Panel section), the Home Assistant num
 - Without the player, the volume of the panel is the softvol `Master` (0 to 100 %, linear in dB from -50 dB to 0 dB, 0 % is silence). The default is 50 %. `tsx-audio volume [N]` reads or sets it from a shell. That panel has no mute.
 
 `tsx-audio status` shows the levels and the codec gains. The service saves the levels at shutdown in `/var/lib/tsx/asound.state`.
+
+The kernel turns the speaker path off 5 s after the last sound. The next sound turns it on again, with a small click of the amplifier. `PMDOWN_MS` of `/etc/tsx/audio.conf` sets this time at boot. `PMDOWN_MS=-1` keeps the path on after the first sound, so no click comes until the next boot. The codec and the amplifier then use power all the time. The CPU time does not change, because no stream runs.
 
 When the player stops (`SENDSPIN=off`), `Master` is the volume of the panel again. It starts at the fixed level (100 %), the safe maximum of the speaker.
 

@@ -4,7 +4,8 @@
 #
 #   tsx-audio init              card setup at boot: the codec path and gains
 #                               of audio.conf, the softvol controls, the saved
-#                               or default levels
+#                               or default levels, the power down time of the
+#                               speaker path (PMDOWN_MS)
 #   tsx-audio card              print the ALSA card id (TSX_SOUND_CARD of the board file)
 #   tsx-audio store             save the mixer state (STATE)
 #   tsx-audio status            card, levels and the open streams
@@ -19,13 +20,14 @@
 # commands exit 2 without a card.
 CONF=${TSX_AUDIO_CONF:-/etc/tsx/audio.conf}
 ASOUND=${TSX_ASOUND_DIR:-/proc/asound}
+SYSFS=${TSX_SYS_DIR:-/sys}
 AMIXER=${AMIXER:-amixer}
 ALSACTL=${ALSACTL:-alsactl}
 APLAY=${APLAY:-aplay}
 
 . "${TSX_BOARD_CONF:-/usr/local/lib/tsx/board.sh}"
 CARD=$TSX_SOUND_CARD CARD_WAIT=15 STATE=/var/lib/tsx/asound.state
-MASTER_DEFAULT=50 MEDIA_DEFAULT=100 MASTER_SENDSPIN=100 CODEC_PCM=115 CODEC_LO_GAIN=6
+MASTER_DEFAULT=50 MEDIA_DEFAULT=100 MASTER_SENDSPIN=100 CODEC_PCM=115 CODEC_LO_GAIN=6 PMDOWN_MS=
 [ -r "$CONF" ] && . "$CONF"
 
 log() { echo "tsx-audio: $*"; command -v logger >/dev/null && logger -t tsx-audio "$*"; return 0; }
@@ -53,6 +55,17 @@ codec_path() {
 	mixer sset PCM "$CODEC_PCM" || log "no 'PCM'"
 }
 
+# The time that the speaker path stays on after the last sound (the ASoC
+# pmdown_time of the card). Empty = the kernel default (5000 ms).
+pmdown() {
+	[ -n "$PMDOWN_MS" ] || return 0
+	for f in "$SYSFS"/devices/platform/sound/*/pmdown_time; do
+		[ -w "$f" ] || continue
+		echo "$PMDOWN_MS" > "$f" && log "speaker path off $PMDOWN_MS ms after the last sound" ||
+			log "could not set $f"
+	done
+}
+
 cmd_init() {
 	if [ -z "$CARD" ]; then log "no sound card in the board file, nothing to do"; return 0; fi
 	i=0
@@ -67,6 +80,7 @@ cmd_init() {
 		log "defaults: Master ${MASTER_DEFAULT}%, Media ${MEDIA_DEFAULT}%"
 	fi
 	codec_path
+	pmdown
 	log "ready: Master $(level Master)%"
 	return 0
 }
@@ -119,5 +133,5 @@ status) cmd_status;;
 card) echo "$CARD";;
 volume) shift; cmd_volume "$@";;
 fixed) cmd_fixed;;
-*) sed -n '2,18p' "$0"; exit 1;;
+*) sed -n '2,19p' "$0"; exit 1;;
 esac

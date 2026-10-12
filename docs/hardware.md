@@ -160,7 +160,7 @@ the line outputs (LOL and LOR) of the codec. The sound card is
 | Format | I2S. The codec makes the bit clock and the frame clock. |
 | MCLK | CCM SSI_EXT1 on the GPIO_0 pad, 24 MHz from the 24 MHz oscillator |
 | Codec reset | GPIO2_10, active low. The codec driver releases it at the start. |
-| Amplifier enable | GPIO1_4, high = on. The amplifier is on only while a stream plays. |
+| Amplifier enable | GPIO1_4, high = on. The amplifier is on only while a stream plays. The reset value of the pad is a pull-up. The device tree sets a pull-down early in the boot. |
 | DMA | SDMA with the scripts in the SDMA ROM. The SDMA firmware file is not necessary. |
 
 The kernel branch has a fix in `clk-imx5.c` for this clock path: the parent
@@ -176,6 +176,41 @@ the line output gain to +20 dB. The volume of the panel is the softvol
 
 The playback rates 8, 16, 44.1 and 48 kHz play at the correct speed. A
 tone at a low level is clean by ear.
+
+### Speaker pops
+
+The kernel turns the speaker path on at the first sound and off 5 s after
+the last sound (`pmdown_time`). At each power up, the line outputs of the
+codec move to their common mode voltage. If the amplifier is on during this
+step, the speaker pops. These steps prevent the pops:
+
+| Step | Where |
+|---|---|
+| The amplifier turns on 100 ms after the line outputs (`enable-delay-ms` of `simple-audio-amplifier`) | Kernel device tree |
+| The enable pad has a pull-down from early in the boot, so the amplifier is off while the codec driver resets the codec | Kernel device tree |
+| The amplifier driver loads before the codec driver | `/etc/modprobe.d/tsx-xx50-audio.conf` |
+| Optional: the path stays on after the first sound (`PMDOWN_MS=-1`) | `/etc/tsx/audio.conf` |
+
+Recordings with the panel microphone (silence played, 16 kHz, the part
+above 1 kHz):
+
+| Test | Peak |
+|---|---|
+| Power up, no delay | -43 dBFS in each run |
+| Power up, line out driver muted | -43 dBFS (the step of the output voltage, not the audio data) |
+| Power up, 100 ms delay | about -63 dBFS, a small click of the amplifier itself |
+| Power up, 300 ms delay | no less than 100 ms |
+| Stream start with the path already on | no pop |
+| Power down | no pop |
+| Quiet room | about -74 dBFS |
+
+With the 100 ms delay, the first sound after a power up starts 100 ms
+later. The levels that `tsx-audio` sets at boot cannot pop: the line
+outputs and the amplifier are off at that time.
+
+A capture that runs before a playback starts stops the playback: the
+playback does not move until the capture ends. A playback that starts
+first, and a capture after it, both work.
 
 ### Microphone
 

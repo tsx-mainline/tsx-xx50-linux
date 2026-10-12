@@ -10,7 +10,8 @@
 #  - the apk repositories: the image block and tsx-config apply give the
 #    public tsx-aports common and xx50 and Alpine main and community
 #  - tsx-autoupdate: the image runs it, and the xx50 packages need a reboot
-#  - audio: the card of board.sh, asound.conf and tsx-audio with a fake amixer
+#  - audio: the card of board.sh, asound.conf, the module order and
+#    tsx-audio with a fake amixer and a fake pmdown_time
 #  - least privilege: the image users and services, the LEDs of the panel app
 # It needs sh, python3 and dd. It runs no compiler.
 set -eu
@@ -102,6 +103,7 @@ card=$(sh -c ". '$OV/usr/local/lib/tsx/board.sh'; echo \$TSX_SOUND_CARD")
 n=$(grep -c "card $card }\|hw:$card,0,0\|card $card\$" "$OV/etc/asound.conf")
 [ "$n" -ge 5 ] && ok "asound.conf uses the card of board.sh ($n places)" || bad "asound.conf names the card $n times"
 for p in media speaker tsx_master_ctl tsx_media_ctl; do grep -q "^pcm\.$p " "$OV/etc/asound.conf" && ok "asound.conf has the PCM $p" || bad "no PCM $p"; done
+grep -qx 'softdep snd_soc_tlv320aic32x4_i2c pre: snd_soc_simple_amplifier' "$OV/etc/modprobe.d/tsx-xx50-audio.conf" && ok "modprobe loads the amplifier driver before the codec driver" || bad "no softdep for the amplifier"
 grep -q 'ipc_perm 0666' "$OV/etc/asound.conf" && grep -q 'ipc_key_add_uid false' "$OV/etc/asound.conf" && ok "the dmix is shared by all users" || bad "the dmix is not shared"
 mkdir -p "$T/asound/$card" "$T/abin"
 cat > "$T/abin/amixer" <<EOF
@@ -113,8 +115,15 @@ printf '#!/bin/sh\necho "aplay $*" >> "%s/amixer.log"\n' "$T" > "$T/abin/aplay"
 printf '#!/bin/sh\nexit 1\n' > "$T/abin/alsactl"
 chmod 755 "$T/abin/amixer" "$T/abin/aplay" "$T/abin/alsactl"
 sed 's/^CARD_WAIT=.*/CARD_WAIT=0/' "$OV/etc/tsx/audio.conf" > "$T/audio.conf"
-au() { env PATH="$T/abin:$PATH" TSX_BOARD_CONF="$OV/usr/local/lib/tsx/board.sh" TSX_AUDIO_CONF="$T/audio.conf" TSX_ASOUND_DIR="$T/asound" sh "$OV/usr/local/bin/tsx-audio" "$@"; }
+mkdir -p "$T/sys/devices/platform/sound/50014000.ssi-tlv320aic32x4-hifi"
+PMD=$T/sys/devices/platform/sound/50014000.ssi-tlv320aic32x4-hifi/pmdown_time
+echo 5000 > "$PMD"
+au() { env PATH="$T/abin:$PATH" TSX_BOARD_CONF="$OV/usr/local/lib/tsx/board.sh" TSX_AUDIO_CONF="$T/audio.conf" TSX_ASOUND_DIR="$T/asound" TSX_SYS_DIR="$T/sys" sh "$OV/usr/local/bin/tsx-audio" "$@"; }
 au init > "$T/init.out" 2>&1
+[ "$(cat "$PMD")" = 5000 ] && ok "init: PMDOWN_MS empty keeps the kernel pmdown_time" || bad "pmdown_time changed: $(cat "$PMD")"
+echo 'PMDOWN_MS=-1' >> "$T/audio.conf"; au init > /dev/null 2>&1
+[ "$(cat "$PMD")" = -1 ] && ok "init: PMDOWN_MS=-1 keeps the speaker path on" || bad "pmdown_time: $(cat "$PMD")"
+sed -i '/^PMDOWN_MS=-1$/d' "$T/audio.conf"
 for want in "aplay -q -D tsx_master_ctl" "sset Master 50%" "sset Media 100%" "sset LOL Output Mixer L_DAC on" "sset LO DAC on" "sset LO Driver Gain 6" "sset PCM 115"; do
 	grep -qF "$want" "$T/amixer.log" && ok "init: $want" || bad "init misses '$want': $(cat "$T/amixer.log")"
 done

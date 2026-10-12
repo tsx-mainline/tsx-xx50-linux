@@ -1,4 +1,4 @@
 # The kernel of the xx50 image: a commit of github.com/tsx-mainline/linux.
 branch=tsx-xx50-lts
 base=v6.18.54
-commit=c1f3086da089f7ed1a120d4432f6a349f090df86
+commit=e15a8a8610ed095dab8d9fb49dc4aa669f28d062
