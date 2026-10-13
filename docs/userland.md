@@ -247,6 +247,8 @@ The device has these entities in Home Assistant:
 | Update mode | A select: `auto` or `manual` (`UPDATE_MODE` of `panel.conf`). |
 | Automatic restart | A switch (`UPDATE_AUTO_RESTART` of `panel.conf`). |
 
+The panel app is not a browser. So it has no "Dark mode" switch and ignores `KIOSK_DARK`. Its colors come from the layout file.
+
 The device also has two actions: `esphome.<device>_set_layout` (a layout as
 JSON text: the panel checks it, saves it and shows it) and
 `esphome.<device>_get_layout` (the layout in use, as an answer of the
