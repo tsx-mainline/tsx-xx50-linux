@@ -246,6 +246,7 @@ The device has these entities in Home Assistant:
 | Restart | A button that restarts the panel. |
 | Update mode | A select: `auto` or `manual` (`UPDATE_MODE` of `panel.conf`). |
 | Automatic restart | A switch (`UPDATE_AUTO_RESTART` of `panel.conf`). |
+| Last boot | A text sensor, device class timestamp, diagnostic: the time of the last boot in UTC. It changes at a reboot, and once when NTP sets the clock. |
 
 The panel app is not a browser. So it has no "Dark mode" switch and ignores `KIOSK_DARK`. Its colors come from the layout file.
 
