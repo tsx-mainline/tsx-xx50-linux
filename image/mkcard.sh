@@ -1,8 +1,16 @@
 #!/bin/sh
 # Assemble the xx50 SD card image for the TSS-752.
 #
-#   image/mkcard.sh <stock-card-dump> <kernel-out-dir> <work-dir> <out-dir>
+#   image/mkcard.sh [--tz ZONE] <stock-card-dump> <kernel-out-dir> <work-dir> <out-dir>
 #
+# --tz ZONE          the time zone of the panel, for example America/Denver.
+#                    "none" writes no zone (the panel runs on UTC until the
+#                    first save of the setup page). Without --tz, the script
+#                    uses TSX_TZ, else it asks at a terminal, with the time
+#                    zone of this computer as the default. Without a terminal,
+#                    it takes that default (image/tz-select.sh). The zone goes
+#                    into the data partition as /data/tsx/timezone. The panel
+#                    uses it until the setup page saves a TZ_NAME.
 # <stock-card-dump>  an image of the stock SD card of the panel (or at least
 #                    its first MiB). The script copies the stock U-Boot and
 #                    its env from it, byte for byte. No Crestron file is part
@@ -30,6 +38,14 @@
 # kernel. After a boot of the golden slots, the ramdisk starts the rescue
 # system of the rescue slot (docs/recovery.md).
 set -eu
+TZ_ARG=${TSX_TZ:-}
+while [ $# -gt 0 ]; do
+	case "$1" in
+	--tz) [ $# -ge 2 ] || { awk 'NR > 1 && !/^#/ {exit} NR > 1 {print}' "$0"; exit 2; }; TZ_ARG=$2; shift 2;;
+	--tz=*) TZ_ARG=${1#--tz=}; shift;;
+	*) break;;
+	esac
+done
 [ $# -eq 4 ] || { awk 'NR > 1 && !/^#/ {exit} NR > 1 {print}' "$0"; exit 2; }
 HERE=$(cd "$(dirname "$0")" && pwd)
 STOCK=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
@@ -42,6 +58,8 @@ IMAGE=${IMAGE:-tsx-xx50-build}
 for f in "$KOUT/uImage" "$WORK/uInitrd" "$WORK/tsx-xx50-rescue.img" "$WORK/rootfs.ext4" "$WORK/data.ext4"; do
 	[ -s "$f" ] || { echo "ERROR: $f is missing" >&2; exit 1; }
 done
+# The time zone first: a wrong name stops the script before the long steps.
+if [ -n "$TZ_ARG" ]; then ZONE=$("$HERE/tz-select.sh" "$TZ_ARG"); else ZONE=$("$HERE/tz-select.sh"); fi
 ROOT_BYTES=$(stat -c %s "$WORK/rootfs.ext4")
 P1_START=32768
 P1_SECTORS=$((LOG_MB * 2048))
@@ -50,6 +68,7 @@ P2_SECTORS=$((ROOT_BYTES / 512))
 P3_START=$((P2_START + P2_SECTORS))
 P3_SECTORS=$(($(stat -c %s "$WORK/data.ext4") / 512))
 TOTAL_SECTORS=$((P3_START + P3_SECTORS))
+echo "== time zone of the panel: $ZONE"
 echo "== card image: $((TOTAL_SECTORS / 2048)) MiB (TSXLOG $LOG_MB MiB, root $((P2_SECTORS / 2048)) MiB, data $((P3_SECTORS / 2048)) MiB)"
 
 # Extract the stock U-Boot and env range [0x400, 0xE0000) to the work dir.
@@ -58,7 +77,7 @@ dd if="$STOCK" of="$WORK/stock-uboot-env.bin" bs=1024 skip=1 count=$(((0xE0000 -
 cp "$HERE/TSXLOG-README.txt" "$WORK/TSXLOG-README.txt"
 
 docker image inspect "$IMAGE" >/dev/null 2>&1 || docker build -q -t "$IMAGE" -f "$HERE/../ci/Dockerfile" "$HERE/../ci"
-docker run --rm -v "$WORK:/w" -v "$KOUT:/k:ro" -v "$OUT:/out" -e NAME="$NAME" \
+docker run --rm -v "$WORK:/w" -v "$KOUT:/k:ro" -v "$OUT:/out" -v "$HERE:/img:ro" -e NAME="$NAME" -e TZ_ZONE="$ZONE" \
 	-e P1_START=$P1_START -e P1_SECTORS=$P1_SECTORS -e P2_START=$P2_START -e P2_SECTORS=$P2_SECTORS \
 	-e P3_START=$P3_START -e P3_SECTORS=$P3_SECTORS \
 	-e TOTAL_SECTORS=$TOTAL_SECTORS -e OWNER="$(id -u):$(id -g)" "$IMAGE" sh -euc '
@@ -79,6 +98,7 @@ docker run --rm -v "$WORK:/w" -v "$KOUT:/k:ro" -v "$OUT:/out" -e NAME="$NAME" \
 	dd if=/tmp/log.vfat of=$I bs=512 seek=$P1_START conv=notrunc status=none
 	dd if=/w/rootfs.ext4 of=$I bs=1M seek=$((P2_START / 2048)) conv=notrunc status=none
 	dd if=/w/data.ext4 of=$I bs=1M seek=$((P3_START / 2048)) conv=notrunc status=none
+	if [ "$TZ_ZONE" != none ]; then sh /img/data-tz.sh "$I?offset=$((P3_START * 512))" "$TZ_ZONE"; fi
 	(cd /out && sha256sum $NAME.img > $NAME.img.sha256)
 	gzip -9 -k $I
 	(cd /out && sha256sum $NAME.img.gz > $NAME.img.gz.sha256)

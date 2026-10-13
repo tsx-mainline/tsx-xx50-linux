@@ -51,9 +51,20 @@ Use the card parts of a release, or build all parts from source
 3. Unpack the parts:
    `mkdir parts && tar --zstd -xf tsx-xx50-card-parts.tar.zst -C parts`
 4. Make the image (in the repository checkout):
-   `image/mkcard.sh stock-card.img parts/kernel parts/work out`
+   `image/mkcard.sh --tz America/Denver stock-card.img parts/kernel parts/work out`
 5. Check the image:
    `python3 image/check-card.py out/tsx-xx50-tss752.img stock-card.img`
+
+The option `--tz` sets the time zone of the panel. Without it, `image/mkcard.sh`
+shows the time zone of your PC at a terminal and asks. Press Enter to use it.
+Without a terminal, the script uses that zone and prints it. `--tz none`
+writes no zone, and the panel runs on UTC until you save the setup page.
+The update window of the panel (03:00 to 05:00) uses this zone. The script
+writes the zone to the data partition (`/data/tsx/timezone`). It does not
+write `panel.conf`, so the setup page and the pairing code stay open for the
+first setup. The first save of the setup page writes `TZ_NAME`, and that
+value wins. To change the zone of a running panel, use the setup page or
+`tsx-config set TZ_NAME <zone>` and `tsx-config apply`.
 
 The result is `out/tsx-xx50-tss752.img.gz` and its `.sha256` file. The image
 holds your stock U-Boot and env, so keep it private too.
@@ -111,7 +122,8 @@ kernel start.
 1. Open the address of the bar in a browser on the same network, for example
    `http://<panel-ip>:8080/setup`.
 2. Type the code of the bar.
-3. Set the panel name, the time zone and the ssh key for root.
+3. Set the panel name, the time zone (the page shows `no change` until you
+   choose one) and the ssh key for root.
 4. Make the API encryption key of the panel app, and copy it.
 5. Save.
 6. Add the panel to Home Assistant ([userland.md](userland.md), "Panel app").
@@ -144,6 +156,7 @@ new card does not change the stock card. If the stock card is lost, see
 
 | Symptom | Cause | Fix |
 |---|---|---|
+| `image/mkcard.sh` stops with "is not a time zone of this computer" | The name is not in `/usr/share/zoneinfo` of the PC, or it has a wrong character. | Use a name like `America/Denver`, or `--tz none`. |
 | `image/mkcard.sh` stops with "the stock dump is too short" | The dump is smaller than 1 MiB. | Read the first MiB of the stock card again. |
 | `image/check-card.py` reports the U-Boot env CRC | The dump is not from a stock card, or the read failed. | Read the dump again from the stock card. |
 | No DHCP lease and no picture | The kernel did not start. | Write the card again. Check the image with `image/check-card.py` first. |

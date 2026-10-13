@@ -12,7 +12,10 @@
 # support for the armv7 rootfs step. Steps: kernel, rootfs, ramdisk, rescue
 # system, card image, offline checks. AUTHORIZED_KEYS and TSX_APK_LOCAL: see
 # rootfs/mkrootfs.sh. TSX_COMMON: see image/mkinitrd.sh (the boot splash)
-# and image/mkrescue.sh (the rescue system).
+# and image/mkrescue.sh (the rescue system). TSX_TZ: the time zone of the
+# panel, for example America/Denver, or none (see image/mkcard.sh). Without
+# it, the card step asks at a terminal and takes the time zone of this
+# computer as the default.
 # Output:
 # <out-dir>/tsx-xx50-tss752.img.gz and its .sha256.
 set -eu

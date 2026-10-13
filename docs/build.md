@@ -44,6 +44,7 @@ Environment of `build.sh` and `rootfs/mkrootfs.sh`:
 | `TSX_APK_LOCAL` | none | A local tsx-aports tree (`v3.24/common/armv7`, `v3.24/xx50/armv7`) for packages that are not published yet. |
 | `TSX_APK_URL` | `https://tsx-aports.unexceptional.net` | The package repository of the image and of the panel. |
 | `ROOTFS_MB`, `DATA_MB` | 1536, 512 | The sizes of p2 and p3 in MiB. |
+| `TSX_TZ` | none | The time zone of the panel for `image/mkcard.sh` (see [install.md](install.md), "Make the card image"). Without it, the script asks at a terminal and uses the time zone of the build computer as the default. |
 
 The kernel must fit the 4 MiB kernel slot. `kernel/build-kernel.sh` stops
 with an error when the uImage is larger, or when the kernel in memory
@@ -102,6 +103,7 @@ MAC and the API key at start ([userland.md](userland.md), "Panel app").
 | `tests/test-boot-ok.sh` | `tsx-boot-ok` on made-up U-Boot envs: the write, `--reset`, `--fallback`, the read-back, the refusals | docker (an armv7 Alpine container with u-boot-tools), python3 |
 | `tests/test-init.sh` | The ramdisk program in its test mode: the U-Boot env, the rescue archive (files, links, devices, modes, damaged archives), the `RESCUE` file. With `RESCUE_IMG`, also the real rescue system | docker (an armv7 Alpine container with gcc), python3 |
 | `tests/test-rescue-tools.sh` | `tsx-boot-rescue`, `tsx-boot-mainline` and `tsx-restore-stock` with fakes and card image files | busybox, python3 |
+| `tests/test-card-tz.sh` | The time zone of a new card: `image/tz-select.sh` (the zone, `none`, the host default, the prompt), `image/data-tz.sh` (the file in the data partition, its modes, a card image file), the option `--tz` of `image/mkcard.sh` and the read of the file by `tsx-setup` | busybox, e2fsprogs, a tsx-linux-common checkout (`TSX_COMMON`) for the last check |
 | `tests/test-update-card.sh` | `image/update-card.sh` on small card image files | e2fsprogs for the grow checks |
 | `tests/qemu-image.sh` | A full card image in QEMU (vexpress-a9): OpenRC, the data partition, the setup page, the ssh login. With `INITRD` (the `initrd.cpio.gz` of `image/mkinitrd.sh`), also the boot through the ramdisk | a card image, a kernel from `tests/build-qemu-kernel.sh`, qemu-system-arm |
 

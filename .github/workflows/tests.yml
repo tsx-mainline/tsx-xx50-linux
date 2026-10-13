@@ -51,6 +51,10 @@ jobs:
         run: sh tests/test-rescue-tools.sh
       - name: tests/test-init.sh - the ramdisk program, env, rescue archive, RESCUE file (armv7 Alpine container)
         run: sh tests/test-init.sh
+      - name: tests/test-card-tz.sh - the time zone of a new card (busybox sh)
+        env:
+          TSX_COMMON: ${{ github.workspace }}/tsx-linux-common
+        run: sh tests/test-card-tz.sh
       - name: tests/test-update-card.sh - card update on image files (busybox sh)
         run: sh tests/test-update-card.sh
       - name: tests/test-update-card.sh - the same with dash

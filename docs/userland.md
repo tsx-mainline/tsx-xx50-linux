@@ -132,7 +132,7 @@ tsx-linux-common (its docs/autoupdate.md). The xx50 uses the defaults of
 | Setting | Value |
 |---|---|
 | Mode | `MODE=auto`: the panel installs inside the window. `manual` only shows the update in Home Assistant. |
-| Window | `WINDOW=03:00-05:00`, the local time of the panel (`TZ_NAME` of `panel.conf`, else UTC) |
+| Window | `WINDOW=03:00-05:00`, the local time of the panel (`TZ_NAME` of `panel.conf`, else the zone of the card tool in `/data/tsx/timezone`, else UTC) |
 | Restart | `AUTO_RESTART=on`: a restart right after an install that needs one |
 | Check | Every 15 minutes (`crond`), in both modes |
 
